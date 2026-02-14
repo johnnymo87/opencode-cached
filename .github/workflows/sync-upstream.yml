@@ -1,0 +1,71 @@
+name: Sync Upstream Releases
+
+on:
+  schedule:
+    # Run every 8 hours
+    - cron: '0 */8 * * *'
+  workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: 'Specific upstream tag to build (e.g., v1.1.65)'
+        required: false
+        type: string
+
+jobs:
+  check-new-release:
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.check.outputs.should_build }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for new upstream release
+        id: check
+        run: |
+          # Get latest upstream release
+          if [ -n "${{ inputs.upstream_tag }}" ]; then
+            UPSTREAM_TAG="${{ inputs.upstream_tag }}"
+            echo "Using manually specified tag: $UPSTREAM_TAG"
+          else
+            UPSTREAM_TAG=$(gh api repos/anomalyco/opencode/releases/latest --jq .tag_name)
+            echo "Latest upstream tag: $UPSTREAM_TAG"
+          fi
+          
+          # Extract version (remove 'v' prefix)
+          VERSION="${UPSTREAM_TAG#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          
+          # Check if we already have a cached release for this version
+          CACHED_TAG="v${VERSION}-cached"
+          
+          if gh release view "$CACHED_TAG" --repo ${{ github.repository }} >/dev/null 2>&1; then
+            echo "Release $CACHED_TAG already exists, skipping"
+            echo "should_build=false" >> $GITHUB_OUTPUT
+          else
+            echo "Release $CACHED_TAG does not exist, will build"
+            echo "should_build=true" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  trigger-build:
+    needs: check-new-release
+    if: needs.check-new-release.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger build workflow
+        run: |
+          gh workflow run build-release.yml \
+            --repo ${{ github.repository }} \
+            --ref main \
+            --field version=${{ needs.check-new-release.outputs.version }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+      
+      - name: Log trigger
+        run: |
+          echo "✓ Triggered build for version ${{ needs.check-new-release.outputs.version }}"

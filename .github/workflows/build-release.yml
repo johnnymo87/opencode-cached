@@ -1,0 +1,280 @@
+name: Build and Release Patched OpenCode
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'OpenCode version to build (without v prefix, e.g., 1.1.65)'
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout opencode-cached
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Clone upstream opencode
+        run: |
+          git clone --depth 1 --branch v${{ inputs.version }} \
+            https://github.com/anomalyco/opencode.git opencode-src
+          cd opencode-src
+          echo "Cloned opencode v${{ inputs.version }}"
+          git log -1 --oneline
+
+      - name: Apply caching patch
+        run: |
+          cd opencode-src
+          ../patches/apply.sh .
+          
+          echo ""
+          echo "Patch applied successfully. Modified files:"
+          git status --short
+
+      - name: Install dependencies
+        run: |
+          cd opencode-src
+          bun install
+
+      - name: Build CLI
+        run: |
+          cd opencode-src/packages/opencode
+          bun run script/build.ts
+          
+          echo ""
+          echo "Build completed. Artifacts:"
+          ls -lh dist/
+
+      - name: Extract Linux arm64 binary
+        run: |
+          cd opencode-src/packages/opencode/dist/opencode-linux-arm64
+          tar czf /tmp/opencode-linux-arm64.tar.gz .
+          echo ""
+          echo "Created tarball:"
+          ls -lh /tmp/opencode-linux-arm64.tar.gz
+
+      - name: Upload Linux arm64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencode-linux-arm64
+          path: /tmp/opencode-linux-arm64.tar.gz
+          retention-days: 1
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout opencode-cached
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Clone upstream opencode
+        run: |
+          git clone --depth 1 --branch v${{ inputs.version }} \
+            https://github.com/anomalyco/opencode.git opencode-src
+          cd opencode-src
+          echo "Cloned opencode v${{ inputs.version }}"
+          git log -1 --oneline
+
+      - name: Apply caching patch
+        run: |
+          cd opencode-src
+          ../patches/apply.sh .
+          
+          echo ""
+          echo "Patch applied successfully. Modified files:"
+          git status --short
+
+      - name: Install dependencies
+        run: |
+          cd opencode-src
+          bun install
+
+      - name: Build CLI
+        run: |
+          cd opencode-src/packages/opencode
+          bun run script/build.ts
+          
+          echo ""
+          echo "Build completed. Artifacts:"
+          ls -lh dist/
+
+      - name: Extract macOS arm64 binary
+        run: |
+          cd opencode-src/packages/opencode/dist/opencode-darwin-arm64
+          zip -r /tmp/opencode-darwin-arm64.zip .
+          echo ""
+          echo "Created zip:"
+          ls -lh /tmp/opencode-darwin-arm64.zip
+
+      - name: Upload macOS arm64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencode-darwin-arm64
+          path: /tmp/opencode-darwin-arm64.zip
+          retention-days: 1
+
+  release:
+    needs: [build-linux, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: opencode-linux-arm64
+          path: ./artifacts
+
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: opencode-darwin-arm64
+          path: ./artifacts
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          sha256sum *.tar.gz *.zip > checksums.sha256
+          cat checksums.sha256
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.version }}-cached
+          name: OpenCode v${{ inputs.version }} with Caching Improvements
+          body: |
+            # OpenCode v${{ inputs.version }} with Prompt Caching Improvements
+            
+            This release applies prompt caching improvements from [PR #5422](https://github.com/anomalyco/opencode/pull/5422) to OpenCode v${{ inputs.version }}.
+            
+            ## Changes
+            
+            - ✅ Provider-specific cache configuration system
+            - ✅ Improved cache breakpoint logic with `maxBreakpoints` support
+            - ✅ Support for 19+ providers (Anthropic, Bedrock, OpenRouter, Google, etc.)
+            - ✅ Per-agent and per-provider cache configuration overrides
+            
+            ## Expected Impact
+            
+            Based on PR #5422 testing with Claude Opus 4.5:
+            - **44% reduction** in cache writes (post-warmup)
+            - **73% reduction** in effective cost (3rd prompt onwards)
+            
+            ## Installation
+            
+            ### Linux (arm64)
+            ```bash
+            curl -sL https://github.com/johnnymo87/opencode-cached/releases/download/v${{ inputs.version }}-cached/opencode-linux-arm64.tar.gz | tar xz
+            ./opencode --version
+            ```
+            
+            ### macOS (arm64)
+            ```bash
+            curl -sL https://github.com/johnnymo87/opencode-cached/releases/download/v${{ inputs.version }}-cached/opencode-darwin-arm64.zip -o opencode.zip
+            unzip opencode.zip
+            ./bin/opencode --version
+            ```
+            
+            ## Verification
+            
+            ```bash
+            # Verify checksums
+            curl -sL https://github.com/johnnymo87/opencode-cached/releases/download/v${{ inputs.version }}-cached/checksums.sha256
+            sha256sum -c checksums.sha256
+            ```
+            
+            ---
+            
+            **Upstream**: [anomalyco/opencode v${{ inputs.version }}](https://github.com/anomalyco/opencode/releases/tag/v${{ inputs.version }})  
+            **Patch**: [caching.patch](https://github.com/johnnymo87/opencode-cached/blob/main/patches/caching.patch)
+          files: |
+            artifacts/opencode-linux-arm64.tar.gz
+            artifacts/opencode-darwin-arm64.zip
+            artifacts/checksums.sha256
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  notify-on-failure:
+    needs: [build-linux, build-macos, release]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create issue on failure
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const version = '${{ inputs.version }}';
+            const title = `Build failed for v${version}`;
+            const body = `
+            ## Build Failure: v${version}
+            
+            The automated build for OpenCode v${version} with caching patch failed.
+            
+            **Workflow Run**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            
+            ### Possible Causes
+            
+            1. **Patch conflict**: The caching patch may not apply to v${version}
+            2. **Build failure**: OpenCode build process may have changed
+            3. **Test failure**: New tests may be incompatible
+            
+            ### Action Required
+            
+            1. Check the workflow logs above
+            2. If patch conflict, manually update \`patches/caching.patch\` for v${version}
+            3. Re-run the workflow: \`gh workflow run build-release.yml --field version=${version}\`
+            
+            ### Upstream Reference
+            
+            - [OpenCode v${version}](https://github.com/anomalyco/opencode/releases/tag/v${version})
+            - [PR #5422](https://github.com/anomalyco/opencode/pull/5422)
+            `;
+            
+            // Check if issue already exists
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'build-failure'
+            });
+            
+            const existingIssue = issues.data.find(i => i.title === title);
+            
+            if (existingIssue) {
+              console.log(`Issue already exists: #${existingIssue.number}`);
+              // Add comment to existing issue
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existingIssue.number,
+                body: `Another build failure occurred. See: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`
+              });
+            } else {
+              // Create new issue
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: ['build-failure', 'automated']
+              });
+              console.log('Created issue: ' + title);
+            }
