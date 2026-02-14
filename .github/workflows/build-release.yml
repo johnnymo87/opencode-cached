@@ -13,6 +13,10 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: write
+  issues: write
+
 jobs:
   build-linux:
     runs-on: ubuntu-latest

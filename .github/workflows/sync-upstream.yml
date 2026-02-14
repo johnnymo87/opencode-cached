@@ -11,6 +11,10 @@ on:
         required: false
         type: string
 
+permissions:
+  contents: read
+  actions: write
+
 jobs:
   check-new-release:
     runs-on: ubuntu-latest
