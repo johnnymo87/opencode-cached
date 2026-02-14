@@ -1,0 +1,179 @@
+name: Check Upstream Caching Status
+
+on:
+  schedule:
+    # Run monthly on the 1st at 00:00 UTC
+    - cron: '0 0 1 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check-upstream:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR #5422 status
+        id: check_pr
+        run: |
+          PR_STATE=$(gh pr view 5422 --repo anomalyco/opencode --json state --jq .state)
+          echo "pr_state=$PR_STATE" >> $GITHUB_OUTPUT
+          echo "PR #5422 current state: $PR_STATE"
+          
+          if [ "$PR_STATE" = "MERGED" ]; then
+            echo "🎉 PR #5422 has been merged!"
+            echo "needs_sunset=true" >> $GITHUB_OUTPUT
+          elif [ "$PR_STATE" = "CLOSED" ]; then
+            echo "⚠️ PR #5422 was closed without merging"
+            echo "needs_review=true" >> $GITHUB_OUTPUT
+          else
+            echo "✓ PR #5422 is still open"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Check if upstream has equivalent caching
+        id: check_caching
+        run: |
+          # Search for ProviderConfig in upstream main branch
+          if gh api repos/anomalyco/opencode/contents/packages/opencode/src/provider/config.ts \
+             --jq .name 2>/dev/null; then
+            echo "✓ Found provider/config.ts in upstream"
+            echo "has_provider_config=true" >> $GITHUB_OUTPUT
+          else
+            echo "✗ No provider/config.ts in upstream yet"
+            echo "has_provider_config=false" >> $GITHUB_OUTPUT
+          fi
+          
+          # Check for applyCaching changes in transform.ts
+          TRANSFORM_CONTENT=$(gh api repos/anomalyco/opencode/contents/packages/opencode/src/provider/transform.ts \
+            --jq .content | base64 -d)
+          
+          if echo "$TRANSFORM_CONTENT" | grep -q "ProviderConfig.getConfig"; then
+            echo "✓ Found ProviderConfig usage in transform.ts"
+            echo "has_provider_config_usage=true" >> $GITHUB_OUTPUT
+          else
+            echo "✗ No ProviderConfig usage in transform.ts"
+            echo "has_provider_config_usage=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Create sunset recommendation issue
+        if: steps.check_pr.outputs.needs_sunset == 'true' || (steps.check_caching.outputs.has_provider_config == 'true' && steps.check_caching.outputs.has_provider_config_usage == 'true')
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prState = '${{ steps.check_pr.outputs.pr_state }}';
+            const hasConfig = '${{ steps.check_caching.outputs.has_provider_config }}' === 'true';
+            const hasUsage = '${{ steps.check_caching.outputs.has_provider_config_usage }}' === 'true';
+            
+            let title = '';
+            let body = '';
+            
+            if (prState === 'MERGED') {
+              title = '🎉 PR #5422 merged - Consider sunsetting this fork';
+              body = `
+              ## PR #5422 Has Been Merged! 🎉
+              
+              The upstream OpenCode repository has merged PR #5422, which means the caching improvements
+              are now available in the official releases.
+              
+              ### Recommended Actions
+              
+              1. **Verify the implementation**: Check that upstream's implementation includes:
+                 - Provider-specific cache configuration
+                 - Tool sorting for cache consistency
+                 - Improved cache breakpoint logic
+                 - Support for 19+ providers
+              
+              2. **Test upstream version**: Try using the official release and compare cost metrics
+              
+              3. **Sunset this fork**: If upstream implementation is equivalent or better:
+                 - Update workstation flake to use \`llmPkgs.opencode\` from llm-agents.nix
+                 - Archive this repository
+                 - Document the migration in workstation repo
+              
+              4. **Keep fork if needed**: If upstream implementation differs significantly:
+                 - Update README to explain the differences
+                 - Consider contributing improvements back upstream
+              
+              ### Cost Comparison Checklist
+              
+              - [ ] Test upstream opencode for 3-5 days
+              - [ ] Run ccusage analysis: \`node .opencode/skills/tracking-cache-costs/analyze.mjs\`
+              - [ ] Compare cache write ratio (baseline: 46%, target with this fork: ~26%)
+              - [ ] Compare cost per day (baseline: $66/day, target with this fork: ~$46/day)
+              - [ ] If upstream achieves similar savings, sunset this fork
+              
+              **PR #5422**: https://github.com/anomalyco/opencode/pull/5422
+              `;
+            } else if (hasConfig && hasUsage) {
+              title = '⚠️ Upstream may have equivalent caching - Review needed';
+              body = `
+              ## Upstream May Have Equivalent Caching Implementation
+              
+              Detected \`ProviderConfig\` in upstream opencode, suggesting they may have implemented
+              similar caching improvements independently.
+              
+              ### Findings
+              
+              - ✓ Found \`packages/opencode/src/provider/config.ts\` in upstream
+              - ✓ Found \`ProviderConfig.getConfig\` usage in \`transform.ts\`
+              
+              ### Recommended Actions
+              
+              1. **Review upstream implementation**: 
+                 - Clone latest upstream: \`git clone https://github.com/anomalyco/opencode.git\`
+                 - Compare \`src/provider/config.ts\` and \`src/provider/transform.ts\` with our patch
+              
+              2. **Test if equivalent**:
+                 - If functionally equivalent, proceed with sunset process
+                 - If different/better, evaluate merging improvements
+              
+              3. **Update this fork or sunset**:
+                 - Document any differences
+                 - Sunset if redundant
+              
+              **Note**: PR #5422 status is currently: **${prState}**
+              
+              This check runs monthly. Close this issue if you've reviewed and decided to keep the fork.
+              `;
+            }
+            
+            // Check if issue already exists
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'sunset-check'
+            });
+            
+            const existingIssue = issues.data.find(i => i.title.includes('PR #5422') || i.title.includes('upstream'));
+            
+            if (existingIssue) {
+              console.log(`Issue already exists: #${existingIssue.number}`);
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existingIssue.number,
+                body: `Monthly check (${new Date().toISOString().split('T')[0]}): Status unchanged. PR state: ${prState}, Upstream has config: ${hasConfig}, Upstream uses config: ${hasUsage}`
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: ['sunset-check', 'review-needed']
+              });
+              console.log('Created sunset check issue');
+            }
+
+      - name: Report status
+        run: |
+          echo "Monthly upstream caching check complete"
+          echo "PR #5422 state: ${{ steps.check_pr.outputs.pr_state }}"
+          echo "Upstream has ProviderConfig: ${{ steps.check_caching.outputs.has_provider_config }}"
+          echo "Upstream uses ProviderConfig: ${{ steps.check_caching.outputs.has_provider_config_usage }}"
