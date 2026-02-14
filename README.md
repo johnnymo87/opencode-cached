@@ -124,9 +124,20 @@ If a new OpenCode release causes the patch to fail:
 
 This fork will be archived if:
 
-- Upstream merges equivalent caching improvements
-- PR #5422 is officially closed as "won't fix"
-- Patch breaks for 3+ consecutive releases
+- **Upstream merges PR #5422 or equivalent caching**: Monthly automated check detects merge and creates issue
+- **Upstream implements independent ProviderConfig**: Automated detection creates review issue  
+- **PR #5422 officially closed as won't fix**: Manual review needed, consider contributing improved version
+- **Patch breaks 3+ consecutive releases**: Indicates fundamental incompatibility, re-evaluate approach
+
+**Automated Monitoring**: The `check-upstream-caching.yml` workflow runs monthly to:
+- Check PR #5422 status (merged/closed/open)
+- Detect if upstream has equivalent `ProviderConfig` implementation
+- Create GitHub issues with sunset recommendations when conditions are met
+
+**Manual Review Triggers**:
+- Monthly GitHub issue if sunset conditions detected
+- Build failure issues if patch fails to apply
+- Cost tracking shows no improvement after 30 days of use
 
 ## Development
 
