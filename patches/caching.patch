@@ -1258,6 +1258,53 @@ index 759dab4..b27173b 100644
        msgs = applyCaching(msgs, model)
      }
  
+diff --git a/packages/opencode/src/session/prompt.ts b/packages/opencode/src/session/prompt.ts
+index f705f20..aa31811 100644
+--- a/packages/opencode/src/session/prompt.ts
++++ b/packages/opencode/src/session/prompt.ts
+@@ -14,6 +14,7 @@ import { SessionCompaction } from "./compaction"
+ import { Instance } from "../project/instance"
+ import { Bus } from "../bus"
+ import { ProviderTransform } from "../provider/transform"
++import { ProviderConfig } from "../provider/config"
+ import { SystemPrompt } from "./system"
+ import { InstructionPrompt } from "./instruction"
+ import { Plugin } from "../plugin"
+@@ -613,6 +614,34 @@ export namespace SessionPrompt {
+         })
+       }
+ 
++      // Sort tools for cache prefix stability when provider config requires it
++      const providerConfig = ProviderConfig.getConfig(model.providerID, model)
++      if (providerConfig.promptOrder.sortTools) {
++        const entries = Object.entries(tools).sort(([a], [b]) => a.localeCompare(b))
++        for (const key of Object.keys(tools)) delete tools[key]
++        for (const [key, value] of entries) tools[key] = value
++      }
++
++      // Apply cache breakpoint to last tool for explicit-caching providers
++      if (
++        providerConfig.cache.enabled &&
++        providerConfig.promptOrder.toolCaching &&
++        ProviderConfig.supportsExplicitCaching(model.providerID)
++      ) {
++        const toolKeys = Object.keys(tools)
++        const lastToolKey = toolKeys[toolKeys.length - 1]
++        if (lastToolKey) {
++          const cacheOptions = ProviderTransform.buildToolCacheOptions(model)
++          if (Object.keys(cacheOptions).length > 0) {
++            const lastTool = tools[lastToolKey]
++            lastTool.providerOptions = {
++              ...lastTool.providerOptions,
++              ...cacheOptions,
++            }
++          }
++        }
++      }
++
+       if (step === 1) {
+         SessionSummary.summarize({
+           sessionID: sessionID,
 diff --git a/packages/opencode/test/provider/config.test.ts b/packages/opencode/test/provider/config.test.ts
 new file mode 100644
 index 0000000..b97e856
