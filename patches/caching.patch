@@ -1,8 +1,8 @@
 diff --git a/packages/opencode/src/config/config.ts b/packages/opencode/src/config/config.ts
-index 8f0f583e..0f60688a 100644
+index 261731b..c5f1065 100644
 --- a/packages/opencode/src/config/config.ts
 +++ b/packages/opencode/src/config/config.ts
-@@ -660,6 +660,50 @@ export namespace Config {
+@@ -662,6 +662,50 @@ export namespace Config {
    })
    export type Command = z.infer<typeof Command>
  
@@ -53,7 +53,7 @@ index 8f0f583e..0f60688a 100644
    export const Skills = z.object({
      paths: z.array(z.string()).optional().describe("Additional paths to skill folders"),
      urls: z
-@@ -702,6 +746,8 @@ export namespace Config {
+@@ -704,6 +748,8 @@ export namespace Config {
          .optional()
          .describe("Maximum number of agentic iterations before forcing text-only response"),
        maxSteps: z.number().int().positive().optional().describe("@deprecated Use 'steps' field instead."),
@@ -62,7 +62,7 @@ index 8f0f583e..0f60688a 100644
        permission: Permission.optional(),
      })
      .catchall(z.any())
-@@ -714,15 +760,17 @@ export namespace Config {
+@@ -716,15 +762,17 @@ export namespace Config {
          "description",
          "temperature",
          "top_p",
@@ -83,7 +83,7 @@ index 8f0f583e..0f60688a 100644
        ])
  
        // Extract unknown properties into options
-@@ -948,6 +996,44 @@ export namespace Config {
+@@ -950,6 +998,44 @@ export namespace Config {
    })
    export type Layout = z.infer<typeof Layout>
  
@@ -128,7 +128,7 @@ index 8f0f583e..0f60688a 100644
    export const Provider = ModelsDev.Provider.partial()
      .extend({
        whitelist: z.array(z.string()).optional(),
-@@ -970,6 +1056,8 @@ export namespace Config {
+@@ -972,6 +1058,8 @@ export namespace Config {
            }),
          )
          .optional(),
@@ -139,7 +139,7 @@ index 8f0f583e..0f60688a 100644
            apiKey: z.string().optional(),
 diff --git a/packages/opencode/src/provider/config.ts b/packages/opencode/src/provider/config.ts
 new file mode 100644
-index 00000000..a9df08f7
+index 0000000..a9df08f
 --- /dev/null
 +++ b/packages/opencode/src/provider/config.ts
 @@ -0,0 +1,953 @@
@@ -1097,7 +1097,7 @@ index 00000000..a9df08f7
 +  }
 +}
 diff --git a/packages/opencode/src/provider/transform.ts b/packages/opencode/src/provider/transform.ts
-index 876a26fc..9c5d9012 100644
+index 759dab4..b27173b 100644
 --- a/packages/opencode/src/provider/transform.ts
 +++ b/packages/opencode/src/provider/transform.ts
 @@ -6,6 +6,7 @@ import type { Provider } from "./provider"
@@ -1112,7 +1112,6 @@ index 876a26fc..9c5d9012 100644
      return msgs
    }
  
--  function applyCaching(msgs: ModelMessage[], providerID: string): ModelMessage[] {
 +  /**
 +   * Build provider options object for cache control based on provider type
 +   */
@@ -1174,7 +1173,7 @@ index 876a26fc..9c5d9012 100644
 +   * Apply caching based on provider configuration
 +   * Uses ProviderConfig to determine caching strategy
 +   */
-+  function applyCaching(msgs: ModelMessage[], model: Provider.Model): ModelMessage[] {
+   function applyCaching(msgs: ModelMessage[], model: Provider.Model): ModelMessage[] {
 +    const config = ProviderConfig.getConfig(model.providerID, model)
 +
 +    // Skip if caching is disabled or provider doesn't support explicit caching
@@ -1210,7 +1209,7 @@ index 876a26fc..9c5d9012 100644
 +    const maxBreakpoints = config.cache.maxBreakpoints
  
      for (const msg of unique([...system, ...final])) {
--      const useMessageLevelOptions = providerID === "anthropic" || providerID.includes("bedrock")
+-      const useMessageLevelOptions = model.providerID === "anthropic" || model.providerID.includes("bedrock")
 -      const shouldUseContentOptions = !useMessageLevelOptions && Array.isArray(msg.content) && msg.content.length > 0
 +      if (maxBreakpoints > 0 && breakpointsApplied >= maxBreakpoints) break
 +
@@ -1239,32 +1238,29 @@ index 876a26fc..9c5d9012 100644
      }
  
      return msgs
-@@ -251,16 +319,12 @@ export namespace ProviderTransform {
- 
+@@ -252,15 +320,10 @@ export namespace ProviderTransform {
    export function message(msgs: ModelMessage[], model: Provider.Model, options: Record<string, unknown>) {
      msgs = unsupportedParts(msgs, model)
--    msgs = normalizeMessages(msgs, model, options)
+     msgs = normalizeMessages(msgs, model, options)
 -    if (
--      model.providerID === "anthropic" ||
--      model.api.id.includes("anthropic") ||
--      model.api.id.includes("claude") ||
--      model.id.includes("anthropic") ||
--      model.id.includes("claude") ||
--      model.api.npm === "@ai-sdk/anthropic"
+-      (model.providerID === "anthropic" ||
+-        model.api.id.includes("anthropic") ||
+-        model.api.id.includes("claude") ||
+-        model.id.includes("anthropic") ||
+-        model.id.includes("claude") ||
+-        model.api.npm === "@ai-sdk/anthropic") &&
+-      model.api.npm !== "@ai-sdk/gateway"
 -    ) {
--      msgs = applyCaching(msgs, model.providerID)
-+    msgs = normalizeMessages(msgs, model)
 +
 +    // Use ProviderConfig to determine if caching should be applied
 +    const config = ProviderConfig.getConfig(model.providerID, model)
 +    if (config.cache.enabled && ProviderConfig.supportsExplicitCaching(model.providerID)) {
-+      msgs = applyCaching(msgs, model)
+       msgs = applyCaching(msgs, model)
      }
  
-     // Remap providerOptions keys from stored providerID to expected SDK key
 diff --git a/packages/opencode/test/provider/config.test.ts b/packages/opencode/test/provider/config.test.ts
 new file mode 100644
-index 00000000..b97e8562
+index 0000000..b97e856
 --- /dev/null
 +++ b/packages/opencode/test/provider/config.test.ts
 @@ -0,0 +1,934 @@
@@ -2202,3 +2198,50 @@ index 00000000..b97e8562
 +    })
 +  })
 +})
+diff --git a/packages/opencode/test/provider/transform.test.ts b/packages/opencode/test/provider/transform.test.ts
+index 3494cb5..911845a 100644
+--- a/packages/opencode/test/provider/transform.test.ts
++++ b/packages/opencode/test/provider/transform.test.ts
+@@ -1423,7 +1423,7 @@ describe("ProviderTransform.message - claude w/bedrock custom inference profile"
+     expect(result[0].providerOptions?.bedrock).toEqual(
+       expect.objectContaining({
+         cachePoint: {
+-          type: "default",
++          type: "ephemeral",
+         },
+       }),
+     )
+@@ -1499,32 +1499,13 @@ describe("ProviderTransform.message - cache control on gateway", () => {
+ 
+     const result = ProviderTransform.message(msgs, model, {}) as any[]
+ 
++    // With ProviderConfig, only the relevant provider's cache options are added
+     expect(result[0].providerOptions).toEqual({
+       anthropic: {
+         cacheControl: {
+           type: "ephemeral",
+         },
+       },
+-      openrouter: {
+-        cacheControl: {
+-          type: "ephemeral",
+-        },
+-      },
+-      bedrock: {
+-        cachePoint: {
+-          type: "default",
+-        },
+-      },
+-      openaiCompatible: {
+-        cache_control: {
+-          type: "ephemeral",
+-        },
+-      },
+-      copilot: {
+-        copilot_cache_control: {
+-          type: "ephemeral",
+-        },
+-      },
+     })
+   })
+ })
