@@ -59,6 +59,8 @@ jobs:
           echo ""
           echo "Build completed. Artifacts:"
           ls -lh dist/
+        env:
+          OPENCODE_VERSION: ${{ inputs.version }}
 
       - name: Extract Linux arm64 binary
         run: |
@@ -116,6 +118,8 @@ jobs:
           echo ""
           echo "Build completed. Artifacts:"
           ls -lh dist/
+        env:
+          OPENCODE_VERSION: ${{ inputs.version }}
 
       - name: Extract macOS arm64 binary
         run: |
