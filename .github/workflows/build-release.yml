@@ -66,15 +66,26 @@ jobs:
         run: |
           cd opencode-src/packages/opencode/dist/opencode-linux-arm64
           tar czf /tmp/opencode-linux-arm64.tar.gz .
-          echo ""
-          echo "Created tarball:"
-          ls -lh /tmp/opencode-linux-arm64.tar.gz
+          echo "Created: $(ls -lh /tmp/opencode-linux-arm64.tar.gz)"
+
+      - name: Extract Linux x64 binary
+        run: |
+          cd opencode-src/packages/opencode/dist/opencode-linux-x64
+          tar czf /tmp/opencode-linux-x64.tar.gz .
+          echo "Created: $(ls -lh /tmp/opencode-linux-x64.tar.gz)"
 
       - name: Upload Linux arm64 artifact
         uses: actions/upload-artifact@v4
         with:
           name: opencode-linux-arm64
           path: /tmp/opencode-linux-arm64.tar.gz
+          retention-days: 1
+
+      - name: Upload Linux x64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencode-linux-x64
+          path: /tmp/opencode-linux-x64.tar.gz
           retention-days: 1
 
   build-macos:
@@ -125,15 +136,26 @@ jobs:
         run: |
           cd opencode-src/packages/opencode/dist/opencode-darwin-arm64
           zip -r /tmp/opencode-darwin-arm64.zip .
-          echo ""
-          echo "Created zip:"
-          ls -lh /tmp/opencode-darwin-arm64.zip
+          echo "Created: $(ls -lh /tmp/opencode-darwin-arm64.zip)"
+
+      - name: Extract macOS x64 binary
+        run: |
+          cd opencode-src/packages/opencode/dist/opencode-darwin-x64
+          zip -r /tmp/opencode-darwin-x64.zip .
+          echo "Created: $(ls -lh /tmp/opencode-darwin-x64.zip)"
 
       - name: Upload macOS arm64 artifact
         uses: actions/upload-artifact@v4
         with:
           name: opencode-darwin-arm64
           path: /tmp/opencode-darwin-arm64.zip
+          retention-days: 1
+
+      - name: Upload macOS x64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencode-darwin-x64
+          path: /tmp/opencode-darwin-x64.zip
           retention-days: 1
 
   release:
@@ -143,17 +165,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download Linux artifact
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          name: opencode-linux-arm64
           path: ./artifacts
-
-      - name: Download macOS artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: opencode-darwin-arm64
-          path: ./artifacts
+          merge-multiple: true
 
       - name: Generate checksums
         run: |
@@ -192,11 +208,24 @@ jobs:
             ./opencode --version
             ```
             
+            ### Linux (x64)
+            ```bash
+            curl -sL https://github.com/johnnymo87/opencode-cached/releases/download/v${{ inputs.version }}-cached/opencode-linux-x64.tar.gz | tar xz
+            ./opencode --version
+            ```
+            
             ### macOS (arm64)
             ```bash
             curl -sL https://github.com/johnnymo87/opencode-cached/releases/download/v${{ inputs.version }}-cached/opencode-darwin-arm64.zip -o opencode.zip
             unzip opencode.zip
-            ./bin/opencode --version
+            ./opencode --version
+            ```
+            
+            ### macOS (x64)
+            ```bash
+            curl -sL https://github.com/johnnymo87/opencode-cached/releases/download/v${{ inputs.version }}-cached/opencode-darwin-x64.zip -o opencode.zip
+            unzip opencode.zip
+            ./opencode --version
             ```
             
             ## Verification
@@ -213,7 +242,9 @@ jobs:
             **Patch**: [caching.patch](https://github.com/johnnymo87/opencode-cached/blob/main/patches/caching.patch)
           files: |
             artifacts/opencode-linux-arm64.tar.gz
+            artifacts/opencode-linux-x64.tar.gz
             artifacts/opencode-darwin-arm64.zip
+            artifacts/opencode-darwin-x64.zip
             artifacts/checksums.sha256
           draft: false
           prerelease: false

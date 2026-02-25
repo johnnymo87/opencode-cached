@@ -11,7 +11,7 @@ OpenCode's maintainer hasn't merged [PR #5422](https://github.com/anomalyco/open
 This repository provides a **zero-maintenance clone-and-patch pipeline** that:
 - Automatically detects new OpenCode releases
 - Applies the caching improvements patch
-- Builds arm64 binaries for Linux and macOS
+- Builds binaries for Linux and macOS (arm64 and x64)
 - Publishes releases on GitHub
 
 ## Performance Impact
@@ -46,7 +46,15 @@ The patch adds:
 
 ```bash
 curl -sL https://github.com/johnnymo87/opencode-cached/releases/latest/download/opencode-linux-arm64.tar.gz | tar xz
-sudo mv opencode /usr/local/bin/
+sudo mv bin/opencode /usr/local/bin/
+opencode --version
+```
+
+### Linux (x64)
+
+```bash
+curl -sL https://github.com/johnnymo87/opencode-cached/releases/latest/download/opencode-linux-x64.tar.gz | tar xz
+sudo mv bin/opencode /usr/local/bin/
 opencode --version
 ```
 
@@ -54,6 +62,15 @@ opencode --version
 
 ```bash
 curl -sL https://github.com/johnnymo87/opencode-cached/releases/latest/download/opencode-darwin-arm64.zip -o opencode.zip
+unzip opencode.zip
+sudo mv bin/opencode /usr/local/bin/
+opencode --version
+```
+
+### macOS (x64)
+
+```bash
+curl -sL https://github.com/johnnymo87/opencode-cached/releases/latest/download/opencode-darwin-x64.zip -o opencode.zip
 unzip opencode.zip
 sudo mv bin/opencode /usr/local/bin/
 opencode --version
@@ -103,8 +120,8 @@ See [PR #5422 description](https://github.com/anomalyco/opencode/pull/5422) for 
    - Fails loudly if patch doesn't apply (creates GitHub issue)
 
 3. **Build**:
-   - Uses Bun to build binaries for `linux-arm64` and `darwin-arm64`
-   - No x86, Windows, or Desktop builds (intentionally minimal)
+   - Uses Bun to cross-compile binaries for all 4 platforms (linux/darwin × arm64/x64)
+   - No Windows or Desktop builds (intentionally minimal)
 
 4. **Release**:
    - Publishes as `v{version}-cached` (e.g., `v1.1.65-cached`)
