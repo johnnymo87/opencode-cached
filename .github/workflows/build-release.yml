@@ -54,7 +54,7 @@ jobs:
       - name: Build CLI
         run: |
           cd opencode-src/packages/opencode
-          bun run script/build.ts
+          bun run script/build.ts --all
           
           echo ""
           echo "Build completed. Artifacts:"
@@ -124,7 +124,7 @@ jobs:
       - name: Build CLI
         run: |
           cd opencode-src/packages/opencode
-          bun run script/build.ts
+          bun run script/build.ts --all
           
           echo ""
           echo "Build completed. Artifacts:"
