@@ -25,7 +25,7 @@ jobs:
             echo "🎉 PR #5422 has been merged!"
             echo "needs_sunset=true" >> $GITHUB_OUTPUT
           elif [ "$PR_STATE" = "CLOSED" ]; then
-            echo "⚠️ PR #5422 was closed without merging"
+            echo "PR #5422 was closed without merging"
             echo "needs_review=true" >> $GITHUB_OUTPUT
           else
             echo "✓ PR #5422 is still open"
@@ -60,7 +60,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - name: Create sunset recommendation issue
+      - name: Create upstream review issue (monitoring signal, not release-blocking)
         if: steps.check_pr.outputs.needs_sunset == 'true' || (steps.check_caching.outputs.has_provider_config == 'true' && steps.check_caching.outputs.has_provider_config_usage == 'true')
         uses: actions/github-script@v7
         with:
@@ -73,9 +73,12 @@ jobs:
             let body = '';
             
             if (prState === 'MERGED') {
-              title = '🎉 PR #5422 merged - Consider sunsetting this fork';
+              title = 'PR #5422 merged - review whether to sunset this fork';
               body = `
-              ## PR #5422 Has Been Merged! 🎉
+              ## PR #5422 Has Been Merged
+
+              > **This is a monitoring signal, not a release failure.** Releases from this fork continue
+              > publishing normally. This issue is for review and planning only.
               
               The upstream OpenCode repository has merged PR #5422, which means the caching improvements
               are now available in the official releases.
@@ -110,9 +113,12 @@ jobs:
               **PR #5422**: https://github.com/anomalyco/opencode/pull/5422
               `;
             } else if (hasConfig && hasUsage) {
-              title = '⚠️ Upstream may have equivalent caching - Review needed';
+              title = 'Upstream may have equivalent caching - review needed';
               body = `
               ## Upstream May Have Equivalent Caching Implementation
+
+              > **This is a monitoring signal, not a release failure.** Releases from this fork continue
+              > publishing normally. This issue is for review and planning only.
               
               Detected \`ProviderConfig\` in upstream opencode, suggesting they may have implemented
               similar caching improvements independently.

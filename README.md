@@ -131,9 +131,9 @@ See [PR #5422 description](https://github.com/anomalyco/opencode/pull/5422) for 
 
 ### When Patch Breaks
 
-If a new OpenCode release causes the patch to fail:
+If a new OpenCode release causes the patch to fail, **the release is blocked** (this is a release-blocking failure, not a monitoring signal):
 
-1. GitHub Actions creates an issue automatically
+1. GitHub Actions creates a `build-failure` issue automatically — no release is published until this is resolved
 2. Manually update `patches/caching.patch` for the new version
 3. Re-trigger build: `gh workflow run build-release.yml --field version=X.Y.Z`
 
@@ -146,14 +146,17 @@ This fork will be archived if:
 - **PR #5422 officially closed as won't fix**: Manual review needed, consider contributing improved version
 - **Patch breaks 3+ consecutive releases**: Indicates fundamental incompatibility, re-evaluate approach
 
-**Automated Monitoring**: The `check-upstream-caching.yml` workflow runs monthly to:
+**Monitoring signals** (from `check-upstream-caching.yml`, runs monthly):
 - Check PR #5422 status (merged/closed/open)
 - Detect if upstream has equivalent `ProviderConfig` implementation
-- Create GitHub issues with sunset recommendations when conditions are met
+- Create `review-needed` GitHub issues when conditions are met — these are informational, not release-blocking
 
-**Manual Review Triggers**:
-- Monthly GitHub issue if sunset conditions detected
-- Build failure issues if patch fails to apply
+**Release-blocking failures** (from `build-release.yml`):
+- Patch fails to apply → no release is published; creates a `build-failure` issue
+- Build or test step fails → same; the release pipeline is blocked until the issue is resolved
+
+**Manual review triggers**:
+- Monthly monitoring issue if sunset conditions detected
 - Cost tracking shows no improvement after 30 days of use
 
 ## Development
