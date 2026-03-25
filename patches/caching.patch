@@ -1,8 +1,8 @@
 diff --git a/packages/opencode/src/config/config.ts b/packages/opencode/src/config/config.ts
-index 261731b..c5f1065 100644
+index c464fcb64..cded7e57a 100644
 --- a/packages/opencode/src/config/config.ts
 +++ b/packages/opencode/src/config/config.ts
-@@ -662,6 +662,50 @@ export namespace Config {
+@@ -700,6 +700,50 @@ export namespace Config {
    })
    export type Command = z.infer<typeof Command>
  
@@ -53,7 +53,7 @@ index 261731b..c5f1065 100644
    export const Skills = z.object({
      paths: z.array(z.string()).optional().describe("Additional paths to skill folders"),
      urls: z
-@@ -704,6 +748,8 @@ export namespace Config {
+@@ -742,6 +786,8 @@ export namespace Config {
          .optional()
          .describe("Maximum number of agentic iterations before forcing text-only response"),
        maxSteps: z.number().int().positive().optional().describe("@deprecated Use 'steps' field instead."),
@@ -62,7 +62,7 @@ index 261731b..c5f1065 100644
        permission: Permission.optional(),
      })
      .catchall(z.any())
-@@ -716,15 +762,17 @@ export namespace Config {
+@@ -754,15 +800,17 @@ export namespace Config {
          "description",
          "temperature",
          "top_p",
@@ -83,7 +83,7 @@ index 261731b..c5f1065 100644
        ])
  
        // Extract unknown properties into options
-@@ -950,6 +998,44 @@ export namespace Config {
+@@ -975,6 +1023,44 @@ export namespace Config {
    })
    export type Layout = z.infer<typeof Layout>
  
@@ -128,7 +128,7 @@ index 261731b..c5f1065 100644
    export const Provider = ModelsDev.Provider.partial()
      .extend({
        whitelist: z.array(z.string()).optional(),
-@@ -972,6 +1058,8 @@ export namespace Config {
+@@ -997,6 +1083,8 @@ export namespace Config {
            }),
          )
          .optional(),
@@ -139,10 +139,10 @@ index 261731b..c5f1065 100644
            apiKey: z.string().optional(),
 diff --git a/packages/opencode/src/provider/config.ts b/packages/opencode/src/provider/config.ts
 new file mode 100644
-index 0000000..a9df08f
+index 000000000..9688cf2ea
 --- /dev/null
 +++ b/packages/opencode/src/provider/config.ts
-@@ -0,0 +1,953 @@
+@@ -0,0 +1,970 @@
 +import type { Provider } from "./provider"
 +
 +/**
@@ -906,6 +906,20 @@ index 0000000..a9df08f
 +  }
 +
 +  /**
++   * Normalize provider identity for cache/prompt configuration lookups.
++   */
++  export function getConfigProviderID(model: Provider.Model): string {
++    switch (model.api.npm) {
++      case "@ai-sdk/amazon-bedrock":
++        return "amazon-bedrock"
++      case "@ai-sdk/google-vertex/anthropic":
++        return "google-vertex-anthropic"
++      default:
++        return detectEffectiveProvider(model)
++    }
++  }
++
++  /**
 +   * Merge user config with defaults
 +   */
 +  function mergeConfig(base: Config, user?: UserConfig): Config {
@@ -1037,6 +1051,9 @@ index 0000000..a9df08f
 +    switch (config.cache.type) {
 +      case "explicit-breakpoint":
 +        // Anthropic/Bedrock style
++        if (providerID === "amazon-bedrock") {
++          return { type: "default" }
++        }
 +        if (ttl === "1h") {
 +          // Extended cache (if supported)
 +          return { type: "ephemeral" } // Currently only ephemeral is widely supported
@@ -1097,7 +1114,7 @@ index 0000000..a9df08f
 +  }
 +}
 diff --git a/packages/opencode/src/provider/transform.ts b/packages/opencode/src/provider/transform.ts
-index 759dab4..b27173b 100644
+index 418ccc5b2..920ce151d 100644
 --- a/packages/opencode/src/provider/transform.ts
 +++ b/packages/opencode/src/provider/transform.ts
 @@ -6,6 +6,7 @@ import type { Provider } from "./provider"
@@ -1108,7 +1125,7 @@ index 759dab4..b27173b 100644
  
  type Modality = NonNullable<ModelsDev.Model["modalities"]>["input"][number]
  
-@@ -171,41 +172,108 @@ export namespace ProviderTransform {
+@@ -171,29 +172,90 @@ export namespace ProviderTransform {
      return msgs
    }
  
@@ -1130,11 +1147,12 @@ index 759dab4..b27173b 100644
 +   * Internal function to build cache control options
 +   */
 +  function buildCacheOptionsInternal(model: Provider.Model): Record<string, Record<string, any>> {
-+    const config = ProviderConfig.getConfig(model.providerID, model)
++    const providerID = ProviderConfig.getConfigProviderID(model)
++    const config = ProviderConfig.getConfig(providerID, model)
 +
 +    if (!config.cache.enabled || !config.cache.property) return {}
 +
-+    const cacheValue = ProviderConfig.buildCacheControl(model.providerID, config.cache.ttl)
++    const cacheValue = ProviderConfig.buildCacheControl(providerID, config.cache.ttl)
 +    if (!Object.keys(cacheValue).length) return {}
 +
 +    // Build provider options for all supported providers
@@ -1174,7 +1192,8 @@ index 759dab4..b27173b 100644
 +   * Uses ProviderConfig to determine caching strategy
 +   */
    function applyCaching(msgs: ModelMessage[], model: Provider.Model): ModelMessage[] {
-+    const config = ProviderConfig.getConfig(model.providerID, model)
++    const providerID = ProviderConfig.getConfigProviderID(model)
++    const config = ProviderConfig.getConfig(providerID, model)
 +
 +    // Skip if caching is disabled or provider doesn't support explicit caching
 +    if (!config.cache.enabled) return msgs
@@ -1209,13 +1228,12 @@ index 759dab4..b27173b 100644
 +    const maxBreakpoints = config.cache.maxBreakpoints
  
      for (const msg of unique([...system, ...final])) {
--      const useMessageLevelOptions = model.providerID === "anthropic" || model.providerID.includes("bedrock")
--      const shouldUseContentOptions = !useMessageLevelOptions && Array.isArray(msg.content) && msg.content.length > 0
 +      if (maxBreakpoints > 0 && breakpointsApplied >= maxBreakpoints) break
 +
-+      const shouldUseContentOptions =
-+        model.providerID !== "anthropic" && Array.isArray(msg.content) && msg.content.length > 0
- 
+       const useMessageLevelOptions =
+         model.providerID === "anthropic" ||
+         model.providerID.includes("bedrock") ||
+@@ -203,12 +265,20 @@ export namespace ProviderTransform {
        if (shouldUseContentOptions) {
          const lastContent = msg.content[msg.content.length - 1]
          if (lastContent && typeof lastContent === "object") {
@@ -1238,7 +1256,7 @@ index 759dab4..b27173b 100644
      }
  
      return msgs
-@@ -252,15 +320,10 @@ export namespace ProviderTransform {
+@@ -255,15 +325,11 @@ export namespace ProviderTransform {
    export function message(msgs: ModelMessage[], model: Provider.Model, options: Record<string, unknown>) {
      msgs = unsupportedParts(msgs, model)
      msgs = normalizeMessages(msgs, model, options)
@@ -1253,16 +1271,17 @@ index 759dab4..b27173b 100644
 -    ) {
 +
 +    // Use ProviderConfig to determine if caching should be applied
-+    const config = ProviderConfig.getConfig(model.providerID, model)
-+    if (config.cache.enabled && ProviderConfig.supportsExplicitCaching(model.providerID)) {
++    const providerID = ProviderConfig.getConfigProviderID(model)
++    const config = ProviderConfig.getConfig(providerID, model)
++    if (config.cache.enabled && ProviderConfig.supportsExplicitCaching(providerID)) {
        msgs = applyCaching(msgs, model)
      }
  
 diff --git a/packages/opencode/src/session/prompt.ts b/packages/opencode/src/session/prompt.ts
-index f705f20..aa31811 100644
+index b3c34539e..2b00a3150 100644
 --- a/packages/opencode/src/session/prompt.ts
 +++ b/packages/opencode/src/session/prompt.ts
-@@ -14,6 +14,7 @@ import { SessionCompaction } from "./compaction"
+@@ -16,6 +16,7 @@ import { SessionCompaction } from "./compaction"
  import { Instance } from "../project/instance"
  import { Bus } from "../bus"
  import { ProviderTransform } from "../provider/transform"
@@ -1270,12 +1289,13 @@ index f705f20..aa31811 100644
  import { SystemPrompt } from "./system"
  import { InstructionPrompt } from "./instruction"
  import { Plugin } from "../plugin"
-@@ -613,6 +614,34 @@ export namespace SessionPrompt {
+@@ -644,6 +645,35 @@ export namespace SessionPrompt {
          })
        }
  
 +      // Sort tools for cache prefix stability when provider config requires it
-+      const providerConfig = ProviderConfig.getConfig(model.providerID, model)
++      const providerID = ProviderConfig.getConfigProviderID(model)
++      const providerConfig = ProviderConfig.getConfig(providerID, model)
 +      if (providerConfig.promptOrder.sortTools) {
 +        const entries = Object.entries(tools).sort(([a], [b]) => a.localeCompare(b))
 +        for (const key of Object.keys(tools)) delete tools[key]
@@ -1286,7 +1306,7 @@ index f705f20..aa31811 100644
 +      if (
 +        providerConfig.cache.enabled &&
 +        providerConfig.promptOrder.toolCaching &&
-+        ProviderConfig.supportsExplicitCaching(model.providerID)
++        ProviderConfig.supportsExplicitCaching(providerID)
 +      ) {
 +        const toolKeys = Object.keys(tools)
 +        const lastToolKey = toolKeys[toolKeys.length - 1]
@@ -1307,7 +1327,7 @@ index f705f20..aa31811 100644
            sessionID: sessionID,
 diff --git a/packages/opencode/test/provider/config.test.ts b/packages/opencode/test/provider/config.test.ts
 new file mode 100644
-index 0000000..b97e856
+index 000000000..b97e85628
 --- /dev/null
 +++ b/packages/opencode/test/provider/config.test.ts
 @@ -0,0 +1,934 @@
@@ -2246,19 +2266,10 @@ index 0000000..b97e856
 +  })
 +})
 diff --git a/packages/opencode/test/provider/transform.test.ts b/packages/opencode/test/provider/transform.test.ts
-index 3494cb5..911845a 100644
+index ae3cf6ab8..e87e59abe 100644
 --- a/packages/opencode/test/provider/transform.test.ts
 +++ b/packages/opencode/test/provider/transform.test.ts
-@@ -1423,7 +1423,7 @@ describe("ProviderTransform.message - claude w/bedrock custom inference profile"
-     expect(result[0].providerOptions?.bedrock).toEqual(
-       expect.objectContaining({
-         cachePoint: {
--          type: "default",
-+          type: "ephemeral",
-         },
-       }),
-     )
-@@ -1499,32 +1499,13 @@ describe("ProviderTransform.message - cache control on gateway", () => {
+@@ -1735,32 +1735,13 @@ describe("ProviderTransform.message - cache control on gateway", () => {
  
      const result = ProviderTransform.message(msgs, model, {}) as any[]
  

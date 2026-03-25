@@ -51,8 +51,7 @@ if ! git apply --check "$PATCH_FILE" 2>/dev/null; then
   
   echo ""
   echo "This likely means the upstream opencode version has changed."
-  echo "The patch was created for opencode v1.2.6."
-  echo "Please check the upstream release and update the patch if needed."
+  echo "Please refresh patches/caching.patch against the current upstream release and retry."
   
   exit 1
 fi
