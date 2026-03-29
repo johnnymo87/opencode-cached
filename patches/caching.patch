@@ -1233,10 +1233,15 @@ index 418ccc5b2..920ce151d 100644
        const useMessageLevelOptions =
          model.providerID === "anthropic" ||
          model.providerID.includes("bedrock") ||
-@@ -203,12 +265,20 @@ export namespace ProviderTransform {
+@@ -203,17 +265,25 @@ export namespace ProviderTransform {
        if (shouldUseContentOptions) {
          const lastContent = msg.content[msg.content.length - 1]
-         if (lastContent && typeof lastContent === "object") {
+         if (
+           lastContent &&
+           typeof lastContent === "object" &&
+           lastContent.type !== "tool-approval-request" &&
+           lastContent.type !== "tool-approval-response"
+         ) {
 -          lastContent.providerOptions = mergeDeep(lastContent.providerOptions ?? {}, providerOptions)
 +          lastContent.providerOptions = {
 +            ...lastContent.providerOptions,
