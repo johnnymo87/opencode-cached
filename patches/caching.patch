@@ -1261,12 +1261,13 @@ index 418ccc5b2..920ce151d 100644
      }
  
      return msgs
-@@ -255,15 +325,11 @@ export namespace ProviderTransform {
+@@ -255,16 +325,11 @@ export namespace ProviderTransform {
    export function message(msgs: ModelMessage[], model: Provider.Model, options: Record<string, unknown>) {
      msgs = unsupportedParts(msgs, model)
      msgs = normalizeMessages(msgs, model, options)
 -    if (
 -      (model.providerID === "anthropic" ||
+-        model.providerID === "google-vertex-anthropic" ||
 -        model.api.id.includes("anthropic") ||
 -        model.api.id.includes("claude") ||
 -        model.id.includes("anthropic") ||
@@ -1294,42 +1295,41 @@ index b3c34539e..2b00a3150 100644
  import { SystemPrompt } from "./system"
  import { InstructionPrompt } from "./instruction"
  import { Plugin } from "../plugin"
-@@ -644,6 +645,35 @@ export namespace SessionPrompt {
-         })
-       }
+@@ -542,5 +543,34 @@ export namespace SessionPrompt {
+           tools[key] = item
+         }
  
-+      // Sort tools for cache prefix stability when provider config requires it
-+      const providerID = ProviderConfig.getConfigProviderID(model)
-+      const providerConfig = ProviderConfig.getConfig(providerID, model)
-+      if (providerConfig.promptOrder.sortTools) {
-+        const entries = Object.entries(tools).sort(([a], [b]) => a.localeCompare(b))
-+        for (const key of Object.keys(tools)) delete tools[key]
-+        for (const [key, value] of entries) tools[key] = value
-+      }
++        // Sort tools for cache prefix stability when provider config requires it
++        const providerID = ProviderConfig.getConfigProviderID(input.model)
++        const providerConfig = ProviderConfig.getConfig(providerID, input.model)
++        if (providerConfig.promptOrder.sortTools) {
++          const entries = Object.entries(tools).sort(([a], [b]) => a.localeCompare(b))
++          for (const key of Object.keys(tools)) delete tools[key]
++          for (const [key, value] of entries) tools[key] = value
++        }
 +
-+      // Apply cache breakpoint to last tool for explicit-caching providers
-+      if (
-+        providerConfig.cache.enabled &&
-+        providerConfig.promptOrder.toolCaching &&
-+        ProviderConfig.supportsExplicitCaching(providerID)
-+      ) {
-+        const toolKeys = Object.keys(tools)
-+        const lastToolKey = toolKeys[toolKeys.length - 1]
-+        if (lastToolKey) {
-+          const cacheOptions = ProviderTransform.buildToolCacheOptions(model)
-+          if (Object.keys(cacheOptions).length > 0) {
-+            const lastTool = tools[lastToolKey]
-+            lastTool.providerOptions = {
-+              ...lastTool.providerOptions,
-+              ...cacheOptions,
++        // Apply cache breakpoint to last tool for explicit-caching providers
++        if (
++          providerConfig.cache.enabled &&
++          providerConfig.promptOrder.toolCaching &&
++          ProviderConfig.supportsExplicitCaching(providerID)
++        ) {
++          const toolKeys = Object.keys(tools)
++          const lastToolKey = toolKeys[toolKeys.length - 1]
++          if (lastToolKey) {
++            const cacheOptions = ProviderTransform.buildToolCacheOptions(input.model)
++            if (Object.keys(cacheOptions).length > 0) {
++              const lastTool = tools[lastToolKey]
++              lastTool.providerOptions = {
++                ...lastTool.providerOptions,
++                ...cacheOptions,
++              }
 +            }
 +          }
 +        }
-+      }
 +
-       if (step === 1) {
-         SessionSummary.summarize({
-           sessionID: sessionID,
+         return tools
+       })
 diff --git a/packages/opencode/test/provider/config.test.ts b/packages/opencode/test/provider/config.test.ts
 new file mode 100644
 index 000000000..b97e85628
