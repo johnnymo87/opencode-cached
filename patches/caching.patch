@@ -1,3 +1,142 @@
+diff --git a/packages/opencode/src/config/config.ts b/packages/opencode/src/config/config.ts
+index ff79b73..ad0edc1 100644
+--- a/packages/opencode/src/config/config.ts
++++ b/packages/opencode/src/config/config.ts
+@@ -513,6 +513,50 @@ export namespace Config {
+   })
+   export type Command = z.infer<typeof Command>
+ 
++  /**
++   * Cache TTL options for provider caching
++   */
++  export const CacheTTL = z
++    .enum(["5m", "1h", "auto"])
++    .describe("Cache time-to-live: '5m' for 5 minutes, '1h' for 1 hour, 'auto' for provider default")
++  export type CacheTTL = z.infer<typeof CacheTTL>
++
++  /**
++   * Prompt section identifiers for ordering
++   */
++  export const PromptSection = z.enum(["tools", "instructions", "environment", "system", "messages"])
++  export type PromptSection = z.infer<typeof PromptSection>
++
++  /**
++   * Agent-specific cache configuration (can override provider defaults)
++   */
++  export const AgentCacheConfig = z
++    .object({
++      enabled: z.boolean().optional().describe("Enable or disable caching for this agent"),
++      ttl: CacheTTL.optional().describe("Cache time-to-live for this agent"),
++      minTokens: z.number().int().nonnegative().optional().describe("Minimum tokens required for content to be cached"),
++      maxBreakpoints: z.number().int().nonnegative().optional().describe("Maximum number of cache breakpoints"),
++    })
++    .strict()
++    .meta({
++      ref: "AgentCacheConfig",
++    })
++  export type AgentCacheConfig = z.infer<typeof AgentCacheConfig>
++
++  /**
++   * Agent-specific prompt ordering configuration (can override provider defaults)
++   */
++  export const AgentPromptOrderConfig = z
++    .object({
++      ordering: z.array(PromptSection).optional().describe("Order of prompt sections for this agent"),
++      cacheBreakpoints: z.array(PromptSection).optional().describe("Sections that should have cache breakpoints"),
++    })
++    .strict()
++    .meta({
++      ref: "AgentPromptOrderConfig",
++    })
++  export type AgentPromptOrderConfig = z.infer<typeof AgentPromptOrderConfig>
++
+   export const Skills = z.object({
+     paths: z.array(z.string()).optional().describe("Additional paths to skill folders"),
+     urls: z
+@@ -555,6 +599,8 @@ export namespace Config {
+         .optional()
+         .describe("Maximum number of agentic iterations before forcing text-only response"),
+       maxSteps: z.number().int().positive().optional().describe("@deprecated Use 'steps' field instead."),
++      cache: AgentCacheConfig.optional().describe("Agent-specific cache configuration (overrides provider defaults)"),
++      promptOrder: AgentPromptOrderConfig.optional().describe("Agent-specific prompt ordering configuration"),
+       permission: Permission.optional(),
+     })
+     .catchall(z.any())
+@@ -567,15 +613,17 @@ export namespace Config {
+         "description",
+         "temperature",
+         "top_p",
++        "tools",
++        "disable",
+         "mode",
+         "hidden",
++        "options",
+         "color",
+         "steps",
+         "maxSteps",
+-        "options",
++        "cache",
++        "promptOrder",
+         "permission",
+-        "disable",
+-        "tools",
+       ])
+ 
+       // Extract unknown properties into options
+@@ -790,6 +838,44 @@ export namespace Config {
+   })
+   export type Layout = z.infer<typeof Layout>
+ 
++  /**
++   * User-configurable cache settings for a provider
++   */
++  export const ProviderCacheConfig = z
++    .object({
++      enabled: z.boolean().optional().describe("Enable or disable caching for this provider"),
++      ttl: CacheTTL.optional().describe("Cache time-to-live"),
++      minTokens: z.number().int().nonnegative().optional().describe("Minimum tokens required for content to be cached"),
++      maxBreakpoints: z
++        .number()
++        .int()
++        .nonnegative()
++        .optional()
++        .describe("Maximum number of cache breakpoints (for explicit caching providers)"),
++    })
++    .strict()
++    .meta({
++      ref: "ProviderCacheConfig",
++    })
++  export type ProviderCacheConfig = z.infer<typeof ProviderCacheConfig>
++
++  /**
++   * User-configurable prompt ordering settings for a provider
++   */
++  export const ProviderPromptOrderConfig = z
++    .object({
++      ordering: z.array(PromptSection).optional().describe("Order of prompt sections for optimal caching"),
++      cacheBreakpoints: z
++        .array(PromptSection)
++        .optional()
++        .describe("Sections that should have cache breakpoints applied"),
++    })
++    .strict()
++    .meta({
++      ref: "ProviderPromptOrderConfig",
++    })
++  export type ProviderPromptOrderConfig = z.infer<typeof ProviderPromptOrderConfig>
++
+   export const Model = z
+     .object({
+       id: z.string(),
+@@ -898,6 +984,8 @@ export namespace Config {
+         .catchall(z.any())
+         .optional(),
+       models: z.record(z.string(), Model).optional(),
++      cache: ProviderCacheConfig.optional().describe("Provider-specific cache configuration"),
++      promptOrder: ProviderPromptOrderConfig.optional().describe("Provider-specific prompt ordering configuration"),
+     })
+     .partial()
+     .strict()
 diff --git a/packages/opencode/src/provider/config.ts b/packages/opencode/src/provider/config.ts
 new file mode 100644
 index 0000000..90627f9
@@ -786,147 +925,8 @@ index 0000000..90627f9
 +    return result
 +  }
 +}
-diff --git a/packages/opencode/src/config/config.ts b/packages/opencode/src/config/config.ts
-index efae2ca..53e97a5 100644
---- a/packages/opencode/src/config/config.ts
-+++ b/packages/opencode/src/config/config.ts
-@@ -509,6 +509,50 @@ export namespace Config {
-   })
-   export type Command = z.infer<typeof Command>
- 
-+  /**
-+   * Cache TTL options for provider caching
-+   */
-+  export const CacheTTL = z
-+    .enum(["5m", "1h", "auto"])
-+    .describe("Cache time-to-live: '5m' for 5 minutes, '1h' for 1 hour, 'auto' for provider default")
-+  export type CacheTTL = z.infer<typeof CacheTTL>
-+
-+  /**
-+   * Prompt section identifiers for ordering
-+   */
-+  export const PromptSection = z.enum(["tools", "instructions", "environment", "system", "messages"])
-+  export type PromptSection = z.infer<typeof PromptSection>
-+
-+  /**
-+   * Agent-specific cache configuration (can override provider defaults)
-+   */
-+  export const AgentCacheConfig = z
-+    .object({
-+      enabled: z.boolean().optional().describe("Enable or disable caching for this agent"),
-+      ttl: CacheTTL.optional().describe("Cache time-to-live for this agent"),
-+      minTokens: z.number().int().nonnegative().optional().describe("Minimum tokens required for content to be cached"),
-+      maxBreakpoints: z.number().int().nonnegative().optional().describe("Maximum number of cache breakpoints"),
-+    })
-+    .strict()
-+    .meta({
-+      ref: "AgentCacheConfig",
-+    })
-+  export type AgentCacheConfig = z.infer<typeof AgentCacheConfig>
-+
-+  /**
-+   * Agent-specific prompt ordering configuration (can override provider defaults)
-+   */
-+  export const AgentPromptOrderConfig = z
-+    .object({
-+      ordering: z.array(PromptSection).optional().describe("Order of prompt sections for this agent"),
-+      cacheBreakpoints: z.array(PromptSection).optional().describe("Sections that should have cache breakpoints"),
-+    })
-+    .strict()
-+    .meta({
-+      ref: "AgentPromptOrderConfig",
-+    })
-+  export type AgentPromptOrderConfig = z.infer<typeof AgentPromptOrderConfig>
-+
-   export const Skills = z.object({
-     paths: z.array(z.string()).optional().describe("Additional paths to skill folders"),
-     urls: z
-@@ -551,6 +595,8 @@ export namespace Config {
-         .optional()
-         .describe("Maximum number of agentic iterations before forcing text-only response"),
-       maxSteps: z.number().int().positive().optional().describe("@deprecated Use 'steps' field instead."),
-+      cache: AgentCacheConfig.optional().describe("Agent-specific cache configuration (overrides provider defaults)"),
-+      promptOrder: AgentPromptOrderConfig.optional().describe("Agent-specific prompt ordering configuration"),
-       permission: Permission.optional(),
-     })
-     .catchall(z.any())
-@@ -563,15 +609,17 @@ export namespace Config {
-         "description",
-         "temperature",
-         "top_p",
-+        "tools",
-+        "disable",
-         "mode",
-         "hidden",
-+        "options",
-         "color",
-         "steps",
-         "maxSteps",
--        "options",
-+        "cache",
-+        "promptOrder",
-         "permission",
--        "disable",
--        "tools",
-       ])
- 
-       // Extract unknown properties into options
-@@ -786,6 +834,44 @@ export namespace Config {
-   })
-   export type Layout = z.infer<typeof Layout>
- 
-+  /**
-+   * User-configurable cache settings for a provider
-+   */
-+  export const ProviderCacheConfig = z
-+    .object({
-+      enabled: z.boolean().optional().describe("Enable or disable caching for this provider"),
-+      ttl: CacheTTL.optional().describe("Cache time-to-live"),
-+      minTokens: z.number().int().nonnegative().optional().describe("Minimum tokens required for content to be cached"),
-+      maxBreakpoints: z
-+        .number()
-+        .int()
-+        .nonnegative()
-+        .optional()
-+        .describe("Maximum number of cache breakpoints (for explicit caching providers)"),
-+    })
-+    .strict()
-+    .meta({
-+      ref: "ProviderCacheConfig",
-+    })
-+  export type ProviderCacheConfig = z.infer<typeof ProviderCacheConfig>
-+
-+  /**
-+   * User-configurable prompt ordering settings for a provider
-+   */
-+  export const ProviderPromptOrderConfig = z
-+    .object({
-+      ordering: z.array(PromptSection).optional().describe("Order of prompt sections for optimal caching"),
-+      cacheBreakpoints: z
-+        .array(PromptSection)
-+        .optional()
-+        .describe("Sections that should have cache breakpoints applied"),
-+    })
-+    .strict()
-+    .meta({
-+      ref: "ProviderPromptOrderConfig",
-+    })
-+  export type ProviderPromptOrderConfig = z.infer<typeof ProviderPromptOrderConfig>
-+
-   export const Provider = ModelsDev.Provider.partial()
-     .extend({
-       whitelist: z.array(z.string()).optional(),
-@@ -840,6 +926,8 @@ export namespace Config {
-         })
-         .catchall(z.any())
-         .optional(),
-+      cache: ProviderCacheConfig.optional().describe("Provider-specific cache configuration"),
-+      promptOrder: ProviderPromptOrderConfig.optional().describe("Provider-specific prompt ordering configuration"),
-     })
-     .strict()
-     .meta({
 diff --git a/packages/opencode/src/provider/transform.ts b/packages/opencode/src/provider/transform.ts
-index f536e04..2413343 100644
+index 1118320..8c22fb1 100644
 --- a/packages/opencode/src/provider/transform.ts
 +++ b/packages/opencode/src/provider/transform.ts
 @@ -6,6 +6,7 @@ import type { Provider } from "./provider"
@@ -1078,7 +1078,7 @@ index f536e04..2413343 100644
      }
  
 diff --git a/packages/opencode/src/session/prompt.ts b/packages/opencode/src/session/prompt.ts
-index c297339..2b494eb 100644
+index 7f0a014..95068c4 100644
 --- a/packages/opencode/src/session/prompt.ts
 +++ b/packages/opencode/src/session/prompt.ts
 @@ -13,6 +13,7 @@ import { type Tool as AITool, tool, jsonSchema, type ToolExecutionOptions, asSch
@@ -1089,7 +1089,7 @@ index c297339..2b494eb 100644
  import { SystemPrompt } from "./system"
  import { Instruction } from "./instruction"
  import { Plugin } from "../plugin"
-@@ -546,6 +547,35 @@ NOTE: At any point in time through this workflow you should feel free to ask the
+@@ -507,6 +508,35 @@ NOTE: At any point in time through this workflow you should feel free to ask the
            tools[key] = item
          }
  
@@ -1125,78 +1125,6 @@ index c297339..2b494eb 100644
          return tools
        })
  
-diff --git a/packages/opencode/test/provider/transform.test.ts b/packages/opencode/test/provider/transform.test.ts
-index 0aee396..f053dde 100644
---- a/packages/opencode/test/provider/transform.test.ts
-+++ b/packages/opencode/test/provider/transform.test.ts
-@@ -1764,32 +1764,13 @@ describe("ProviderTransform.message - cache control on gateway", () => {
- 
-     const result = ProviderTransform.message(msgs, model, {}) as any[]
- 
-+    // With ProviderConfig, only the relevant provider's cache options are added
-     expect(result[0].providerOptions).toEqual({
-       anthropic: {
-         cacheControl: {
-           type: "ephemeral",
-         },
-       },
--      openrouter: {
--        cacheControl: {
--          type: "ephemeral",
--        },
--      },
--      bedrock: {
--        cachePoint: {
--          type: "default",
--        },
--      },
--      openaiCompatible: {
--        cache_control: {
--          type: "ephemeral",
--        },
--      },
--      copilot: {
--        copilot_cache_control: {
--          type: "ephemeral",
--        },
--      },
-     })
-   })
- 
-@@ -1816,32 +1797,13 @@ describe("ProviderTransform.message - cache control on gateway", () => {
- 
-     const result = ProviderTransform.message(msgs, model, {}) as any[]
- 
-+    // With ProviderConfig, google-vertex-anthropic uses anthropic cacheControl
-     expect(result[0].providerOptions).toEqual({
-       anthropic: {
-         cacheControl: {
-           type: "ephemeral",
-         },
-       },
--      openrouter: {
--        cacheControl: {
--          type: "ephemeral",
--        },
--      },
--      bedrock: {
--        cachePoint: {
--          type: "default",
--        },
--      },
--      openaiCompatible: {
--        cache_control: {
--          type: "ephemeral",
--        },
--      },
--      copilot: {
--        copilot_cache_control: {
--          type: "ephemeral",
--        },
--      },
-     })
-   })
- })
 diff --git a/packages/opencode/test/provider/config.test.ts b/packages/opencode/test/provider/config.test.ts
 new file mode 100644
 index 0000000..a7d2918
@@ -2138,3 +2066,75 @@ index 0000000..a7d2918
 +    })
 +  })
 +})
+diff --git a/packages/opencode/test/provider/transform.test.ts b/packages/opencode/test/provider/transform.test.ts
+index 0aee396..f053dde 100644
+--- a/packages/opencode/test/provider/transform.test.ts
++++ b/packages/opencode/test/provider/transform.test.ts
+@@ -1764,32 +1764,13 @@ describe("ProviderTransform.message - cache control on gateway", () => {
+ 
+     const result = ProviderTransform.message(msgs, model, {}) as any[]
+ 
++    // With ProviderConfig, only the relevant provider's cache options are added
+     expect(result[0].providerOptions).toEqual({
+       anthropic: {
+         cacheControl: {
+           type: "ephemeral",
+         },
+       },
+-      openrouter: {
+-        cacheControl: {
+-          type: "ephemeral",
+-        },
+-      },
+-      bedrock: {
+-        cachePoint: {
+-          type: "default",
+-        },
+-      },
+-      openaiCompatible: {
+-        cache_control: {
+-          type: "ephemeral",
+-        },
+-      },
+-      copilot: {
+-        copilot_cache_control: {
+-          type: "ephemeral",
+-        },
+-      },
+     })
+   })
+ 
+@@ -1816,32 +1797,13 @@ describe("ProviderTransform.message - cache control on gateway", () => {
+ 
+     const result = ProviderTransform.message(msgs, model, {}) as any[]
+ 
++    // With ProviderConfig, google-vertex-anthropic uses anthropic cacheControl
+     expect(result[0].providerOptions).toEqual({
+       anthropic: {
+         cacheControl: {
+           type: "ephemeral",
+         },
+       },
+-      openrouter: {
+-        cacheControl: {
+-          type: "ephemeral",
+-        },
+-      },
+-      bedrock: {
+-        cachePoint: {
+-          type: "default",
+-        },
+-      },
+-      openaiCompatible: {
+-        cache_control: {
+-          type: "ephemeral",
+-        },
+-      },
+-      copilot: {
+-        copilot_cache_control: {
+-          type: "ephemeral",
+-        },
+-      },
+     })
+   })
+ })
