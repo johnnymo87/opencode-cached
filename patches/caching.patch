@@ -1,149 +1,105 @@
-diff --git a/packages/opencode/src/config/config.ts b/packages/opencode/src/config/config.ts
-index ff79b73..ad0edc1 100644
---- a/packages/opencode/src/config/config.ts
-+++ b/packages/opencode/src/config/config.ts
-@@ -513,6 +513,50 @@ export namespace Config {
-   })
-   export type Command = z.infer<typeof Command>
+diff --git a/packages/opencode/src/config/agent.ts b/packages/opencode/src/config/agent.ts
+index 1469522..ac0c57f 100644
+--- a/packages/opencode/src/config/agent.ts
++++ b/packages/opencode/src/config/agent.ts
+@@ -16,6 +16,7 @@ import { ConfigPermission } from "./permission"
+ const log = Log.create({ service: "config" })
  
-+  /**
-+   * Cache TTL options for provider caching
-+   */
-+  export const CacheTTL = z
-+    .enum(["5m", "1h", "auto"])
-+    .describe("Cache time-to-live: '5m' for 5 minutes, '1h' for 1 hour, 'auto' for provider default")
-+  export type CacheTTL = z.infer<typeof CacheTTL>
-+
-+  /**
-+   * Prompt section identifiers for ordering
-+   */
-+  export const PromptSection = z.enum(["tools", "instructions", "environment", "system", "messages"])
-+  export type PromptSection = z.infer<typeof PromptSection>
-+
-+  /**
-+   * Agent-specific cache configuration (can override provider defaults)
-+   */
-+  export const AgentCacheConfig = z
-+    .object({
-+      enabled: z.boolean().optional().describe("Enable or disable caching for this agent"),
-+      ttl: CacheTTL.optional().describe("Cache time-to-live for this agent"),
-+      minTokens: z.number().int().nonnegative().optional().describe("Minimum tokens required for content to be cached"),
-+      maxBreakpoints: z.number().int().nonnegative().optional().describe("Maximum number of cache breakpoints"),
-+    })
-+    .strict()
-+    .meta({
-+      ref: "AgentCacheConfig",
-+    })
-+  export type AgentCacheConfig = z.infer<typeof AgentCacheConfig>
-+
-+  /**
-+   * Agent-specific prompt ordering configuration (can override provider defaults)
-+   */
-+  export const AgentPromptOrderConfig = z
-+    .object({
-+      ordering: z.array(PromptSection).optional().describe("Order of prompt sections for this agent"),
-+      cacheBreakpoints: z.array(PromptSection).optional().describe("Sections that should have cache breakpoints"),
-+    })
-+    .strict()
-+    .meta({
-+      ref: "AgentPromptOrderConfig",
-+    })
-+  export type AgentPromptOrderConfig = z.infer<typeof AgentPromptOrderConfig>
-+
-   export const Skills = z.object({
-     paths: z.array(z.string()).optional().describe("Additional paths to skill folders"),
-     urls: z
-@@ -555,6 +599,8 @@ export namespace Config {
-         .optional()
-         .describe("Maximum number of agentic iterations before forcing text-only response"),
-       maxSteps: z.number().int().positive().optional().describe("@deprecated Use 'steps' field instead."),
-+      cache: AgentCacheConfig.optional().describe("Agent-specific cache configuration (overrides provider defaults)"),
-+      promptOrder: AgentPromptOrderConfig.optional().describe("Agent-specific prompt ordering configuration"),
-       permission: Permission.optional(),
-     })
-     .catchall(z.any())
-@@ -567,15 +613,17 @@ export namespace Config {
-         "description",
-         "temperature",
-         "top_p",
-+        "tools",
-+        "disable",
-         "mode",
-         "hidden",
-+        "options",
-         "color",
-         "steps",
-         "maxSteps",
--        "options",
-+        "cache",
-+        "promptOrder",
-         "permission",
--        "disable",
--        "tools",
-       ])
+ const PositiveInt = Schema.Number.check(Schema.isInt()).check(Schema.isGreaterThan(0))
++const NonNegativeInt = Schema.Number.check(Schema.isInt()).check(Schema.isGreaterThanOrEqualTo(0))
  
-       // Extract unknown properties into options
-@@ -790,6 +838,44 @@ export namespace Config {
-   })
-   export type Layout = z.infer<typeof Layout>
+ const Color = Schema.Union([
+   Schema.String.check(Schema.isPattern(/^#[0-9a-fA-F]{6}$/)),
+@@ -54,6 +55,30 @@ const AgentSchema = Schema.StructWithRest(
+       description: "Maximum number of agentic iterations before forcing text-only response",
+     }),
+     maxSteps: Schema.optional(PositiveInt).annotate({ description: "@deprecated Use 'steps' field instead." }),
++    cache: Schema.optional(
++      Schema.Struct({
++        enabled: Schema.optional(Schema.Boolean).annotate({ description: "Enable or disable caching for this agent" }),
++        ttl: Schema.optional(Schema.Literals(["5m", "1h", "auto"])).annotate({
++          description: "Cache time-to-live: '5m' for 5 minutes, '1h' for 1 hour, 'auto' for provider default",
++        }),
++        minTokens: Schema.optional(NonNegativeInt).annotate({
++          description: "Minimum tokens required for content to be cached",
++        }),
++        maxBreakpoints: Schema.optional(NonNegativeInt).annotate({
++          description: "Maximum number of cache breakpoints",
++        }),
++      }),
++    ).annotate({ description: "Agent-specific cache configuration (overrides provider defaults)" }),
++    promptOrder: Schema.optional(
++      Schema.Struct({
++        ordering: Schema.optional(
++          Schema.mutable(Schema.Array(Schema.Literals(["tools", "instructions", "environment", "system", "messages"]))),
++        ).annotate({ description: "Order of prompt sections for this agent" }),
++        cacheBreakpoints: Schema.optional(
++          Schema.mutable(Schema.Array(Schema.Literals(["tools", "instructions", "environment", "system", "messages"]))),
++        ).annotate({ description: "Sections that should have cache breakpoints" }),
++      }),
++    ).annotate({ description: "Agent-specific prompt ordering configuration" }),
+     permission: Schema.optional(PermissionRef),
+   }),
+   [Schema.Record(Schema.String, Schema.Any)],
+@@ -76,6 +101,8 @@ const KNOWN_KEYS = new Set([
+   "permission",
+   "disable",
+   "tools",
++  "cache",
++  "promptOrder",
+ ])
  
-+  /**
-+   * User-configurable cache settings for a provider
-+   */
-+  export const ProviderCacheConfig = z
-+    .object({
-+      enabled: z.boolean().optional().describe("Enable or disable caching for this provider"),
-+      ttl: CacheTTL.optional().describe("Cache time-to-live"),
-+      minTokens: z.number().int().nonnegative().optional().describe("Minimum tokens required for content to be cached"),
-+      maxBreakpoints: z
-+        .number()
-+        .int()
-+        .nonnegative()
-+        .optional()
-+        .describe("Maximum number of cache breakpoints (for explicit caching providers)"),
-+    })
-+    .strict()
-+    .meta({
-+      ref: "ProviderCacheConfig",
-+    })
-+  export type ProviderCacheConfig = z.infer<typeof ProviderCacheConfig>
-+
-+  /**
-+   * User-configurable prompt ordering settings for a provider
-+   */
-+  export const ProviderPromptOrderConfig = z
-+    .object({
-+      ordering: z.array(PromptSection).optional().describe("Order of prompt sections for optimal caching"),
-+      cacheBreakpoints: z
-+        .array(PromptSection)
-+        .optional()
-+        .describe("Sections that should have cache breakpoints applied"),
-+    })
-+    .strict()
-+    .meta({
-+      ref: "ProviderPromptOrderConfig",
-+    })
-+  export type ProviderPromptOrderConfig = z.infer<typeof ProviderPromptOrderConfig>
-+
-   export const Model = z
-     .object({
-       id: z.string(),
-@@ -898,6 +984,8 @@ export namespace Config {
-         .catchall(z.any())
-         .optional(),
-       models: z.record(z.string(), Model).optional(),
-+      cache: ProviderCacheConfig.optional().describe("Provider-specific cache configuration"),
-+      promptOrder: ProviderPromptOrderConfig.optional().describe("Provider-specific prompt ordering configuration"),
-     })
-     .partial()
-     .strict()
+ // Post-parse normalisation:
+diff --git a/packages/opencode/src/config/provider.ts b/packages/opencode/src/config/provider.ts
+index 212e716..682fd67 100644
+--- a/packages/opencode/src/config/provider.ts
++++ b/packages/opencode/src/config/provider.ts
+@@ -3,6 +3,7 @@ import { zod } from "@/util/effect-zod"
+ import { withStatics } from "@/util/schema"
+ 
+ const PositiveInt = Schema.Number.check(Schema.isInt()).check(Schema.isGreaterThan(0))
++const NonNegativeInt = Schema.Number.check(Schema.isInt()).check(Schema.isGreaterThanOrEqualTo(0))
+ 
+ export const Model = Schema.Struct({
+   id: Schema.optional(Schema.String),
+@@ -107,6 +108,30 @@ export class Info extends Schema.Class<Info>("ProviderConfig")({
+     ),
+   ),
+   models: Schema.optional(Schema.Record(Schema.String, Model)),
++  cache: Schema.optional(
++    Schema.Struct({
++      enabled: Schema.optional(Schema.Boolean).annotate({ description: "Enable or disable caching for this provider" }),
++      ttl: Schema.optional(Schema.Literals(["5m", "1h", "auto"])).annotate({
++        description: "Cache time-to-live: '5m' for 5 minutes, '1h' for 1 hour, 'auto' for provider default",
++      }),
++      minTokens: Schema.optional(NonNegativeInt).annotate({
++        description: "Minimum tokens required for content to be cached",
++      }),
++      maxBreakpoints: Schema.optional(NonNegativeInt).annotate({
++        description: "Maximum number of cache breakpoints (for explicit caching providers)",
++      }),
++    }),
++  ).annotate({ description: "Provider-specific cache configuration" }),
++  promptOrder: Schema.optional(
++    Schema.Struct({
++      ordering: Schema.optional(
++        Schema.mutable(Schema.Array(Schema.Literals(["tools", "instructions", "environment", "system", "messages"]))),
++      ).annotate({ description: "Order of prompt sections for optimal caching" }),
++      cacheBreakpoints: Schema.optional(
++        Schema.mutable(Schema.Array(Schema.Literals(["tools", "instructions", "environment", "system", "messages"]))),
++      ).annotate({ description: "Sections that should have cache breakpoints applied" }),
++    }),
++  ).annotate({ description: "Provider-specific prompt ordering configuration" }),
+ }) {
+   static readonly zod = zod(this)
+ }
 diff --git a/packages/opencode/src/provider/config.ts b/packages/opencode/src/provider/config.ts
 new file mode 100644
-index 0000000..90627f9
+index 0000000..fd825a0
 --- /dev/null
 +++ b/packages/opencode/src/provider/config.ts
-@@ -0,0 +1,782 @@
-+import type { Provider } from "./provider"
+@@ -0,0 +1,826 @@
++import type * as Provider from "./provider"
 +
 +/**
 + * Provider Configuration System
@@ -717,6 +673,48 @@ index 0000000..90627f9
 +      },
 +    },
 +
++    alibaba: {
++      cache: {
++        enabled: true,
++        type: "explicit-breakpoint",
++        property: "cacheControl",
++        hierarchy: ["tools", "system", "messages"],
++        ttl: "5m",
++        minTokens: 1024,
++        maxBreakpoints: 4,
++      },
++      promptOrder: {
++        ordering: ["tools", "instructions", "environment", "system", "messages"],
++        cacheBreakpoints: ["tools", "system", "messages"],
++        combineSystemMessages: false,
++        systemPromptMode: "parameter",
++        toolCaching: true,
++        requiresAlternatingRoles: true,
++        sortTools: true,
++      },
++    },
++
++    "alibaba-cn": {
++      cache: {
++        enabled: true,
++        type: "explicit-breakpoint",
++        property: "cacheControl",
++        hierarchy: ["tools", "system", "messages"],
++        ttl: "5m",
++        minTokens: 1024,
++        maxBreakpoints: 4,
++      },
++      promptOrder: {
++        ordering: ["tools", "instructions", "environment", "system", "messages"],
++        cacheBreakpoints: ["tools", "system", "messages"],
++        combineSystemMessages: false,
++        systemPromptMode: "parameter",
++        toolCaching: true,
++        requiresAlternatingRoles: true,
++        sortTools: true,
++      },
++    },
++
 +    default: {
 +      cache: {
 +        enabled: false,
@@ -780,6 +778,8 @@ index 0000000..90627f9
 +        return "amazon-bedrock"
 +      case "@ai-sdk/google-vertex/anthropic":
 +        return "google-vertex-anthropic"
++      case "@ai-sdk/alibaba":
++        return "alibaba"
 +      default:
 +        return detectEffectiveProvider(model)
 +    }
@@ -926,204 +926,221 @@ index 0000000..90627f9
 +  }
 +}
 diff --git a/packages/opencode/src/provider/transform.ts b/packages/opencode/src/provider/transform.ts
-index 1118320..8c22fb1 100644
+index 4ed43ce..07b87ec 100644
 --- a/packages/opencode/src/provider/transform.ts
 +++ b/packages/opencode/src/provider/transform.ts
-@@ -6,6 +6,7 @@ import type { Provider } from "./provider"
- import type { ModelsDev } from "./models"
+@@ -1,11 +1,12 @@
+ import type { ModelMessage } from "ai"
+-import { mergeDeep, unique } from "remeda"
++import { unique } from "remeda"
+ import type { JSONSchema7 } from "@ai-sdk/provider"
+ import type { JSONSchema } from "zod/v4/core"
+ import type * as Provider from "./provider"
+ import type * as ModelsDev from "./models"
  import { iife } from "@/util/iife"
  import { Flag } from "@/flag/flag"
 +import { ProviderConfig } from "./config"
  
  type Modality = NonNullable<ModelsDev.Model["modalities"]>["input"][number]
  
-@@ -189,29 +190,77 @@ export namespace ProviderTransform {
-     return msgs
+@@ -213,32 +214,82 @@ function normalizeMessages(
+   return msgs
+ }
+ 
++/**
++ * Build cache control options for tools (exported for use in prompt.ts)
++ */
++export function buildToolCacheOptions(model: Provider.Model): Record<string, Record<string, any>> {
++  return buildCacheOptionsInternal(model)
++}
++
++/**
++ * Internal function to build cache control options for a model
++ */
++function buildCacheOptionsInternal(model: Provider.Model): Record<string, Record<string, any>> {
++  const providerID = ProviderConfig.getConfigProviderID(model)
++  const config = ProviderConfig.getConfig(providerID, model)
++
++  if (!config.cache.enabled || !config.cache.property) return {}
++
++  const cacheValue = ProviderConfig.buildCacheControl(providerID, config.cache.ttl)
++  if (!Object.keys(cacheValue).length) return {}
++
++  const result: Record<string, Record<string, any>> = {}
++
++  // Always include anthropic cacheControl for Claude models
++  if (model.api.id.includes("claude") || model.providerID === "anthropic") {
++    result.anthropic = { cacheControl: cacheValue }
++  }
++
++  // Include bedrock cachePoint for Bedrock provider
++  if (model.providerID === "amazon-bedrock" || model.api.npm === "@ai-sdk/amazon-bedrock") {
++    result.bedrock = { cachePoint: cacheValue }
++  }
++
++  // Include openrouter cache_control for OpenRouter
++  if (model.providerID === "openrouter" || model.api.npm === "@openrouter/ai-sdk-provider") {
++    result.openrouter = { cache_control: cacheValue }
++  }
++
++  // Include openaiCompatible for compatible providers
++  if (model.api.npm?.includes("openai-compatible")) {
++    result.openaiCompatible = { cache_control: cacheValue }
++  }
++
++  // Include google-vertex-anthropic
++  if (model.providerID === "google-vertex-anthropic") {
++    result.anthropic = { cacheControl: cacheValue }
++  }
++
++  // Include alibaba cacheControl
++  if (model.providerID === "alibaba" || model.providerID === "alibaba-cn" || model.api.npm === "@ai-sdk/alibaba") {
++    result.alibaba = { cacheControl: cacheValue }
++  }
++
++  return result
++}
++
++/**
++ * Apply caching based on provider configuration
++ */
+ function applyCaching(msgs: ModelMessage[], model: Provider.Model): ModelMessage[] {
++  const providerID = ProviderConfig.getConfigProviderID(model)
++  const config = ProviderConfig.getConfig(providerID, model)
++
++  if (!config.cache.enabled) return msgs
++  if (config.cache.type !== "explicit-breakpoint" && config.cache.type !== "passthrough") return msgs
++
++  const providerOptions = buildCacheOptionsInternal(model)
++  if (!Object.keys(providerOptions).length) return msgs
++
+   const system = msgs.filter((msg) => msg.role === "system").slice(0, 2)
+   const final = msgs.filter((msg) => msg.role !== "system").slice(-2)
+ 
+-  const providerOptions = {
+-    anthropic: {
+-      cacheControl: { type: "ephemeral" },
+-    },
+-    openrouter: {
+-      cacheControl: { type: "ephemeral" },
+-    },
+-    bedrock: {
+-      cachePoint: { type: "default" },
+-    },
+-    openaiCompatible: {
+-      cache_control: { type: "ephemeral" },
+-    },
+-    copilot: {
+-      copilot_cache_control: { type: "ephemeral" },
+-    },
+-    alibaba: {
+-      cacheControl: { type: "ephemeral" },
+-    },
+-  }
++  let breakpointsApplied = 0
++  const maxBreakpoints = config.cache.maxBreakpoints
+ 
+   for (const msg of unique([...system, ...final])) {
++    if (maxBreakpoints > 0 && breakpointsApplied >= maxBreakpoints) break
++
+     const useMessageLevelOptions =
+       model.providerID === "anthropic" ||
+       model.providerID.includes("bedrock") ||
+@@ -253,12 +304,22 @@ function applyCaching(msgs: ModelMessage[], model: Provider.Model): ModelMessage
+         lastContent.type !== "tool-approval-request" &&
+         lastContent.type !== "tool-approval-response"
+       ) {
+-        lastContent.providerOptions = mergeDeep(lastContent.providerOptions ?? {}, providerOptions)
++        // Shallow merge: buildCacheOptionsInternal returns a single provider's key, no nested conflict.
++        lastContent.providerOptions = {
++          ...lastContent.providerOptions,
++          ...providerOptions,
++        }
++        breakpointsApplied++
+         continue
+       }
+     }
+ 
+-    msg.providerOptions = mergeDeep(msg.providerOptions ?? {}, providerOptions)
++    // Shallow merge: buildCacheOptionsInternal returns a single provider's key, no nested conflict.
++    msg.providerOptions = {
++      ...msg.providerOptions,
++      ...providerOptions,
++    }
++    breakpointsApplied++
    }
  
-+  /**
-+   * Build cache control options for tools (exported for use in prompt.ts)
-+   */
-+  export function buildToolCacheOptions(model: Provider.Model): Record<string, Record<string, any>> {
-+    return buildCacheOptionsInternal(model)
-+  }
+   return msgs
+@@ -305,17 +366,11 @@ function unsupportedParts(msgs: ModelMessage[], model: Provider.Model): ModelMes
+ export function message(msgs: ModelMessage[], model: Provider.Model, options: Record<string, unknown>) {
+   msgs = unsupportedParts(msgs, model)
+   msgs = normalizeMessages(msgs, model, options)
+-  if (
+-    (model.providerID === "anthropic" ||
+-      model.providerID === "google-vertex-anthropic" ||
+-      model.api.id.includes("anthropic") ||
+-      model.api.id.includes("claude") ||
+-      model.id.includes("anthropic") ||
+-      model.id.includes("claude") ||
+-      model.api.npm === "@ai-sdk/anthropic" ||
+-      model.api.npm === "@ai-sdk/alibaba") &&
+-    model.api.npm !== "@ai-sdk/gateway"
+-  ) {
 +
-+  /**
-+   * Internal function to build cache control options for a model
-+   */
-+  function buildCacheOptionsInternal(model: Provider.Model): Record<string, Record<string, any>> {
-+    const providerID = ProviderConfig.getConfigProviderID(model)
-+    const config = ProviderConfig.getConfig(providerID, model)
-+
-+    if (!config.cache.enabled || !config.cache.property) return {}
-+
-+    const cacheValue = ProviderConfig.buildCacheControl(providerID, config.cache.ttl)
-+    if (!Object.keys(cacheValue).length) return {}
-+
-+    const result: Record<string, Record<string, any>> = {}
-+
-+    // Always include anthropic cacheControl for Claude models
-+    if (model.api.id.includes("claude") || model.providerID === "anthropic") {
-+      result.anthropic = { cacheControl: cacheValue }
-+    }
-+
-+    // Include bedrock cachePoint for Bedrock provider
-+    if (model.providerID === "amazon-bedrock" || model.api.npm === "@ai-sdk/amazon-bedrock") {
-+      result.bedrock = { cachePoint: cacheValue }
-+    }
-+
-+    // Include openrouter cache_control for OpenRouter
-+    if (model.providerID === "openrouter" || model.api.npm === "@openrouter/ai-sdk-provider") {
-+      result.openrouter = { cache_control: cacheValue }
-+    }
-+
-+    // Include openaiCompatible for compatible providers
-+    if (model.api.npm?.includes("openai-compatible")) {
-+      result.openaiCompatible = { cache_control: cacheValue }
-+    }
-+
-+    // Include google-vertex-anthropic
-+    if (model.providerID === "google-vertex-anthropic") {
-+      result.anthropic = { cacheControl: cacheValue }
-+    }
-+
-+    return result
-+  }
-+
-+  /**
-+   * Apply caching based on provider configuration
-+   */
-   function applyCaching(msgs: ModelMessage[], model: Provider.Model): ModelMessage[] {
-+    const providerID = ProviderConfig.getConfigProviderID(model)
-+    const config = ProviderConfig.getConfig(providerID, model)
-+
-+    if (!config.cache.enabled) return msgs
-+    if (config.cache.type !== "explicit-breakpoint" && config.cache.type !== "passthrough") return msgs
-+
-+    const providerOptions = buildCacheOptionsInternal(model)
-+    if (!Object.keys(providerOptions).length) return msgs
-+
-     const system = msgs.filter((msg) => msg.role === "system").slice(0, 2)
-     const final = msgs.filter((msg) => msg.role !== "system").slice(-2)
- 
--    const providerOptions = {
--      anthropic: {
--        cacheControl: { type: "ephemeral" },
--      },
--      openrouter: {
--        cacheControl: { type: "ephemeral" },
--      },
--      bedrock: {
--        cachePoint: { type: "default" },
--      },
--      openaiCompatible: {
--        cache_control: { type: "ephemeral" },
--      },
--      copilot: {
--        copilot_cache_control: { type: "ephemeral" },
--      },
--    }
-+    let breakpointsApplied = 0
-+    const maxBreakpoints = config.cache.maxBreakpoints
- 
-     for (const msg of unique([...system, ...final])) {
-+      if (maxBreakpoints > 0 && breakpointsApplied >= maxBreakpoints) break
-+
-       const useMessageLevelOptions =
-         model.providerID === "anthropic" ||
-         model.providerID.includes("bedrock") ||
-@@ -226,12 +275,20 @@ export namespace ProviderTransform {
-           lastContent.type !== "tool-approval-request" &&
-           lastContent.type !== "tool-approval-response"
-         ) {
--          lastContent.providerOptions = mergeDeep(lastContent.providerOptions ?? {}, providerOptions)
-+          lastContent.providerOptions = {
-+            ...lastContent.providerOptions,
-+            ...providerOptions,
-+          }
-+          breakpointsApplied++
-           continue
-         }
-       }
- 
--      msg.providerOptions = mergeDeep(msg.providerOptions ?? {}, providerOptions)
-+      msg.providerOptions = {
-+        ...msg.providerOptions,
-+        ...providerOptions,
-+      }
-+      breakpointsApplied++
-     }
- 
-     return msgs
-@@ -278,16 +335,11 @@ export namespace ProviderTransform {
-   export function message(msgs: ModelMessage[], model: Provider.Model, options: Record<string, unknown>) {
-     msgs = unsupportedParts(msgs, model)
-     msgs = normalizeMessages(msgs, model, options)
--    if (
--      (model.providerID === "anthropic" ||
--        model.providerID === "google-vertex-anthropic" ||
--        model.api.id.includes("anthropic") ||
--        model.api.id.includes("claude") ||
--        model.id.includes("anthropic") ||
--        model.id.includes("claude") ||
--        model.api.npm === "@ai-sdk/anthropic") &&
--      model.api.npm !== "@ai-sdk/gateway"
--    ) {
-+
-+    // Use ProviderConfig to determine if explicit caching should be applied
-+    const providerID = ProviderConfig.getConfigProviderID(model)
-+    const cacheConfig = ProviderConfig.getConfig(providerID, model)
-+    if (cacheConfig.cache.enabled && ProviderConfig.supportsExplicitCaching(providerID)) {
-       msgs = applyCaching(msgs, model)
-     }
++  // Use ProviderConfig to determine if explicit caching should be applied
++  const providerID = ProviderConfig.getConfigProviderID(model)
++  const cacheConfig = ProviderConfig.getConfig(providerID, model)
++  if (cacheConfig.cache.enabled && ProviderConfig.supportsExplicitCaching(providerID)) {
+     msgs = applyCaching(msgs, model)
+   }
  
 diff --git a/packages/opencode/src/session/prompt.ts b/packages/opencode/src/session/prompt.ts
-index 7f0a014..95068c4 100644
+index 431189d..d35f51d 100644
 --- a/packages/opencode/src/session/prompt.ts
 +++ b/packages/opencode/src/session/prompt.ts
-@@ -13,6 +13,7 @@ import { type Tool as AITool, tool, jsonSchema, type ToolExecutionOptions, asSch
+@@ -14,6 +14,7 @@ import type { JSONSchema7 } from "@ai-sdk/provider"
  import { SessionCompaction } from "./compaction"
  import { Bus } from "../bus"
- import { ProviderTransform } from "../provider/transform"
+ import { ProviderTransform } from "../provider"
 +import { ProviderConfig } from "../provider/config"
  import { SystemPrompt } from "./system"
  import { Instruction } from "./instruction"
  import { Plugin } from "../plugin"
-@@ -507,6 +508,35 @@ NOTE: At any point in time through this workflow you should feel free to ask the
-           tools[key] = item
-         }
+@@ -519,6 +520,35 @@ NOTE: At any point in time through this workflow you should feel free to ask the
+         tools[key] = item
+       }
  
-+        // Sort tools for cache prefix stability when provider config requires it
-+        const providerID = ProviderConfig.getConfigProviderID(input.model)
-+        const providerConfig = ProviderConfig.getConfig(providerID, input.model)
-+        if (providerConfig.promptOrder.sortTools) {
-+          const entries = Object.entries(tools).sort(([a], [b]) => a.localeCompare(b))
-+          for (const key of Object.keys(tools)) delete tools[key]
-+          for (const [key, value] of entries) tools[key] = value
-+        }
++      // Sort tools for cache prefix stability when provider config requires it
++      const providerID = ProviderConfig.getConfigProviderID(input.model)
++      const providerConfig = ProviderConfig.getConfig(providerID, input.model)
++      if (providerConfig.promptOrder.sortTools) {
++        const entries = Object.entries(tools).sort(([a], [b]) => a.localeCompare(b))
++        for (const key of Object.keys(tools)) delete tools[key]
++        for (const [key, value] of entries) tools[key] = value
++      }
 +
-+        // Apply cache breakpoint to last tool for explicit-caching providers
-+        if (
-+          providerConfig.cache.enabled &&
-+          providerConfig.promptOrder.toolCaching &&
-+          ProviderConfig.supportsExplicitCaching(providerID)
-+        ) {
-+          const toolKeys = Object.keys(tools)
-+          const lastToolKey = toolKeys[toolKeys.length - 1]
-+          if (lastToolKey) {
-+            const cacheOptions = ProviderTransform.buildToolCacheOptions(input.model)
-+            if (Object.keys(cacheOptions).length > 0) {
-+              const lastTool = tools[lastToolKey]
-+              lastTool.providerOptions = {
-+                ...lastTool.providerOptions,
-+                ...cacheOptions,
-+              }
++      // Apply cache breakpoint to last tool for explicit-caching providers
++      if (
++        providerConfig.cache.enabled &&
++        providerConfig.promptOrder.toolCaching &&
++        ProviderConfig.supportsExplicitCaching(providerID)
++      ) {
++        const toolKeys = Object.keys(tools)
++        const lastToolKey = toolKeys[toolKeys.length - 1]
++        if (lastToolKey) {
++          const cacheOptions = ProviderTransform.buildToolCacheOptions(input.model)
++          if (Object.keys(cacheOptions).length > 0) {
++            const lastTool = tools[lastToolKey]
++            lastTool.providerOptions = {
++              ...lastTool.providerOptions,
++              ...cacheOptions,
 +            }
 +          }
 +        }
++      }
 +
-         return tools
-       })
+       return tools
+     })
  
 diff --git a/packages/opencode/test/provider/config.test.ts b/packages/opencode/test/provider/config.test.ts
 new file mode 100644
@@ -2067,10 +2084,10 @@ index 0000000..a7d2918
 +  })
 +})
 diff --git a/packages/opencode/test/provider/transform.test.ts b/packages/opencode/test/provider/transform.test.ts
-index 0aee396..f053dde 100644
+index 7a76317..e07937c 100644
 --- a/packages/opencode/test/provider/transform.test.ts
 +++ b/packages/opencode/test/provider/transform.test.ts
-@@ -1764,32 +1764,13 @@ describe("ProviderTransform.message - cache control on gateway", () => {
+@@ -1936,37 +1936,13 @@ describe("ProviderTransform.message - cache control on gateway", () => {
  
      const result = ProviderTransform.message(msgs, model, {}) as any[]
  
@@ -2101,10 +2118,15 @@ index 0aee396..f053dde 100644
 -          type: "ephemeral",
 -        },
 -      },
+-      alibaba: {
+-        cacheControl: {
+-          type: "ephemeral",
+-        },
+-      },
      })
    })
  
-@@ -1816,32 +1797,13 @@ describe("ProviderTransform.message - cache control on gateway", () => {
+@@ -1993,37 +1969,13 @@ describe("ProviderTransform.message - cache control on gateway", () => {
  
      const result = ProviderTransform.message(msgs, model, {}) as any[]
  
@@ -2132,6 +2154,11 @@ index 0aee396..f053dde 100644
 -      },
 -      copilot: {
 -        copilot_cache_control: {
+-          type: "ephemeral",
+-        },
+-      },
+-      alibaba: {
+-        cacheControl: {
 -          type: "ephemeral",
 -        },
 -      },
