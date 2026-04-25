@@ -1,5 +1,5 @@
 diff --git a/packages/opencode/src/config/agent.ts b/packages/opencode/src/config/agent.ts
-index 1469522..ac0c57f 100644
+index 9755c2037..43d6824b0 100644
 --- a/packages/opencode/src/config/agent.ts
 +++ b/packages/opencode/src/config/agent.ts
 @@ -16,6 +16,7 @@ import { ConfigPermission } from "./permission"
@@ -51,7 +51,7 @@ index 1469522..ac0c57f 100644
  
  // Post-parse normalisation:
 diff --git a/packages/opencode/src/config/provider.ts b/packages/opencode/src/config/provider.ts
-index 212e716..682fd67 100644
+index bd6ae3599..dce80715b 100644
 --- a/packages/opencode/src/config/provider.ts
 +++ b/packages/opencode/src/config/provider.ts
 @@ -3,6 +3,7 @@ import { zod } from "@/util/effect-zod"
@@ -62,7 +62,7 @@ index 212e716..682fd67 100644
  
  export const Model = Schema.Struct({
    id: Schema.optional(Schema.String),
-@@ -107,6 +108,30 @@ export class Info extends Schema.Class<Info>("ProviderConfig")({
+@@ -107,6 +108,30 @@ export const Info = Schema.Struct({
      ),
    ),
    models: Schema.optional(Schema.Record(Schema.String, Model)),
@@ -90,12 +90,12 @@ index 212e716..682fd67 100644
 +      ).annotate({ description: "Sections that should have cache breakpoints applied" }),
 +    }),
 +  ).annotate({ description: "Provider-specific prompt ordering configuration" }),
- }) {
-   static readonly zod = zod(this)
- }
+ })
+   .annotate({ identifier: "ProviderConfig" })
+   .pipe(withStatics((s) => ({ zod: zod(s) })))
 diff --git a/packages/opencode/src/provider/config.ts b/packages/opencode/src/provider/config.ts
 new file mode 100644
-index 0000000..970557a
+index 000000000..970557a47
 --- /dev/null
 +++ b/packages/opencode/src/provider/config.ts
 @@ -0,0 +1,842 @@
@@ -942,7 +942,7 @@ index 0000000..970557a
 +  }
 +}
 diff --git a/packages/opencode/src/provider/transform.ts b/packages/opencode/src/provider/transform.ts
-index 4ed43ce..6046687 100644
+index 4ed43ce99..604668746 100644
 --- a/packages/opencode/src/provider/transform.ts
 +++ b/packages/opencode/src/provider/transform.ts
 @@ -1,11 +1,11 @@
@@ -1169,7 +1169,7 @@ index 4ed43ce..6046687 100644
    }
  
 diff --git a/packages/opencode/src/session/prompt.ts b/packages/opencode/src/session/prompt.ts
-index 431189d..d35f51d 100644
+index 431189d19..d35f51dd4 100644
 --- a/packages/opencode/src/session/prompt.ts
 +++ b/packages/opencode/src/session/prompt.ts
 @@ -14,6 +14,7 @@ import type { JSONSchema7 } from "@ai-sdk/provider"
@@ -1218,7 +1218,7 @@ index 431189d..d35f51d 100644
  
 diff --git a/packages/opencode/test/provider/config.test.ts b/packages/opencode/test/provider/config.test.ts
 new file mode 100644
-index 0000000..58ba8b2
+index 000000000..58ba8b201
 --- /dev/null
 +++ b/packages/opencode/test/provider/config.test.ts
 @@ -0,0 +1,965 @@
@@ -2188,7 +2188,7 @@ index 0000000..58ba8b2
 +  })
 +})
 diff --git a/packages/opencode/test/provider/transform.test.ts b/packages/opencode/test/provider/transform.test.ts
-index 7a76317..98a5af4 100644
+index 7a7631710..98a5af495 100644
 --- a/packages/opencode/test/provider/transform.test.ts
 +++ b/packages/opencode/test/provider/transform.test.ts
 @@ -1914,7 +1914,7 @@ describe("ProviderTransform.message - cache control on gateway", () => {
@@ -2456,7 +2456,7 @@ index 7a76317..98a5af4 100644
  
  describe("ProviderTransform.variants", () => {
 diff --git a/packages/opencode/test/session/llm.test.ts b/packages/opencode/test/session/llm.test.ts
-index 4d82096..baa13c6 100644
+index 4d82096f3..baa13c69e 100644
 --- a/packages/opencode/test/session/llm.test.ts
 +++ b/packages/opencode/test/session/llm.test.ts
 @@ -1120,10 +1120,25 @@ describe("session.llm.stream", () => {
