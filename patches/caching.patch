@@ -1,16 +1,17 @@
 diff --git a/packages/opencode/src/config/agent.ts b/packages/opencode/src/config/agent.ts
-index 9755c2037..43d6824b0 100644
+index 2978916..83d2709 100644
 --- a/packages/opencode/src/config/agent.ts
 +++ b/packages/opencode/src/config/agent.ts
-@@ -16,6 +16,7 @@ import { ConfigPermission } from "./permission"
- const log = Log.create({ service: "config" })
- 
- const PositiveInt = Schema.Number.check(Schema.isInt()).check(Schema.isGreaterThan(0))
-+const NonNegativeInt = Schema.Number.check(Schema.isInt()).check(Schema.isGreaterThanOrEqualTo(0))
- 
- const Color = Schema.Union([
-   Schema.String.check(Schema.isPattern(/^#[0-9a-fA-F]{6}$/)),
-@@ -54,6 +55,30 @@ const AgentSchema = Schema.StructWithRest(
+@@ -4,7 +4,7 @@ import { Schema } from "effect"
+ import z from "zod"
+ import { Bus } from "@/bus"
+ import { zod } from "@/util/effect-zod"
+-import { PositiveInt } from "@/util/schema"
++import { NonNegativeInt, PositiveInt } from "@/util/schema"
+ import { Log } from "../util"
+ import { NamedError } from "@opencode-ai/shared/util/error"
+ import { Glob } from "@opencode-ai/shared/util/glob"
+@@ -47,6 +47,30 @@ const AgentSchema = Schema.StructWithRest(
        description: "Maximum number of agentic iterations before forcing text-only response",
      }),
      maxSteps: Schema.optional(PositiveInt).annotate({ description: "@deprecated Use 'steps' field instead." }),
@@ -38,10 +39,10 @@ index 9755c2037..43d6824b0 100644
 +        ).annotate({ description: "Sections that should have cache breakpoints" }),
 +      }),
 +    ).annotate({ description: "Agent-specific prompt ordering configuration" }),
-     permission: Schema.optional(PermissionRef),
+     permission: Schema.optional(ConfigPermission.Info),
    }),
    [Schema.Record(Schema.String, Schema.Any)],
-@@ -76,6 +101,8 @@ const KNOWN_KEYS = new Set([
+@@ -69,6 +93,8 @@ const KNOWN_KEYS = new Set([
    "permission",
    "disable",
    "tools",
@@ -51,18 +52,18 @@ index 9755c2037..43d6824b0 100644
  
  // Post-parse normalisation:
 diff --git a/packages/opencode/src/config/provider.ts b/packages/opencode/src/config/provider.ts
-index bd6ae3599..dce80715b 100644
+index cd74694..febf76e 100644
 --- a/packages/opencode/src/config/provider.ts
 +++ b/packages/opencode/src/config/provider.ts
-@@ -3,6 +3,7 @@ import { zod } from "@/util/effect-zod"
- import { withStatics } from "@/util/schema"
- 
- const PositiveInt = Schema.Number.check(Schema.isInt()).check(Schema.isGreaterThan(0))
-+const NonNegativeInt = Schema.Number.check(Schema.isInt()).check(Schema.isGreaterThanOrEqualTo(0))
+@@ -1,6 +1,6 @@
+ import { Schema } from "effect"
+ import { zod } from "@/util/effect-zod"
+-import { PositiveInt, withStatics } from "@/util/schema"
++import { NonNegativeInt, PositiveInt, withStatics } from "@/util/schema"
  
  export const Model = Schema.Struct({
    id: Schema.optional(Schema.String),
-@@ -107,6 +108,30 @@ export const Info = Schema.Struct({
+@@ -105,6 +105,30 @@ export const Info = Schema.Struct({
      ),
    ),
    models: Schema.optional(Schema.Record(Schema.String, Model)),
@@ -95,7 +96,7 @@ index bd6ae3599..dce80715b 100644
    .pipe(withStatics((s) => ({ zod: zod(s) })))
 diff --git a/packages/opencode/src/provider/config.ts b/packages/opencode/src/provider/config.ts
 new file mode 100644
-index 000000000..a5d6e1e3a
+index 0000000..ed3c5e6
 --- /dev/null
 +++ b/packages/opencode/src/provider/config.ts
 @@ -0,0 +1,857 @@
@@ -957,7 +958,7 @@ index 000000000..a5d6e1e3a
 +  }
 +}
 diff --git a/packages/opencode/src/provider/transform.ts b/packages/opencode/src/provider/transform.ts
-index 4ed43ce99..604668746 100644
+index 50529c4..2020882 100644
 --- a/packages/opencode/src/provider/transform.ts
 +++ b/packages/opencode/src/provider/transform.ts
 @@ -1,11 +1,11 @@
@@ -973,7 +974,7 @@ index 4ed43ce99..604668746 100644
  
  type Modality = NonNullable<ModelsDev.Model["modalities"]>["input"][number]
  
-@@ -213,32 +213,140 @@ function normalizeMessages(
+@@ -226,32 +226,140 @@ function normalizeMessages(
    return msgs
  }
  
@@ -1135,7 +1136,7 @@ index 4ed43ce99..604668746 100644
      const useMessageLevelOptions =
        model.providerID === "anthropic" ||
        model.providerID.includes("bedrock") ||
-@@ -253,12 +361,22 @@ function applyCaching(msgs: ModelMessage[], model: Provider.Model): ModelMessage
+@@ -266,12 +374,22 @@ function applyCaching(msgs: ModelMessage[], model: Provider.Model): ModelMessage
          lastContent.type !== "tool-approval-request" &&
          lastContent.type !== "tool-approval-response"
        ) {
@@ -1160,7 +1161,7 @@ index 4ed43ce99..604668746 100644
    }
  
    return msgs
-@@ -305,17 +423,11 @@ function unsupportedParts(msgs: ModelMessage[], model: Provider.Model): ModelMes
+@@ -318,17 +436,11 @@ function unsupportedParts(msgs: ModelMessage[], model: Provider.Model): ModelMes
  export function message(msgs: ModelMessage[], model: Provider.Model, options: Record<string, unknown>) {
    msgs = unsupportedParts(msgs, model)
    msgs = normalizeMessages(msgs, model, options)
@@ -1184,10 +1185,10 @@ index 4ed43ce99..604668746 100644
    }
  
 diff --git a/packages/opencode/src/session/prompt.ts b/packages/opencode/src/session/prompt.ts
-index 431189d19..d35f51dd4 100644
+index 3d07a96..a4e863a 100644
 --- a/packages/opencode/src/session/prompt.ts
 +++ b/packages/opencode/src/session/prompt.ts
-@@ -14,6 +14,7 @@ import type { JSONSchema7 } from "@ai-sdk/provider"
+@@ -15,6 +15,7 @@ import type { JSONSchema7 } from "@ai-sdk/provider"
  import { SessionCompaction } from "./compaction"
  import { Bus } from "../bus"
  import { ProviderTransform } from "../provider"
@@ -1195,7 +1196,7 @@ index 431189d19..d35f51dd4 100644
  import { SystemPrompt } from "./system"
  import { Instruction } from "./instruction"
  import { Plugin } from "../plugin"
-@@ -519,6 +520,35 @@ NOTE: At any point in time through this workflow you should feel free to ask the
+@@ -522,6 +523,35 @@ NOTE: At any point in time through this workflow you should feel free to ask the
          tools[key] = item
        }
  
@@ -1233,7 +1234,7 @@ index 431189d19..d35f51dd4 100644
  
 diff --git a/packages/opencode/test/provider/config.test.ts b/packages/opencode/test/provider/config.test.ts
 new file mode 100644
-index 000000000..58ba8b201
+index 0000000..c86c59c
 --- /dev/null
 +++ b/packages/opencode/test/provider/config.test.ts
 @@ -0,0 +1,965 @@
@@ -2203,7 +2204,7 @@ index 000000000..58ba8b201
 +  })
 +})
 diff --git a/packages/opencode/test/provider/transform.test.ts b/packages/opencode/test/provider/transform.test.ts
-index 7a7631710..98a5af495 100644
+index 791fcde..139efa4 100644
 --- a/packages/opencode/test/provider/transform.test.ts
 +++ b/packages/opencode/test/provider/transform.test.ts
 @@ -1914,7 +1914,7 @@ describe("ProviderTransform.message - cache control on gateway", () => {
@@ -2471,7 +2472,7 @@ index 7a7631710..98a5af495 100644
  
  describe("ProviderTransform.variants", () => {
 diff --git a/packages/opencode/test/session/llm.test.ts b/packages/opencode/test/session/llm.test.ts
-index 4d82096f3..baa13c69e 100644
+index 4d82096..baa13c6 100644
 --- a/packages/opencode/test/session/llm.test.ts
 +++ b/packages/opencode/test/session/llm.test.ts
 @@ -1120,10 +1120,25 @@ describe("session.llm.stream", () => {
