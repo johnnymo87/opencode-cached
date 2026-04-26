@@ -95,10 +95,10 @@ index bd6ae3599..dce80715b 100644
    .pipe(withStatics((s) => ({ zod: zod(s) })))
 diff --git a/packages/opencode/src/provider/config.ts b/packages/opencode/src/provider/config.ts
 new file mode 100644
-index 000000000..970557a47
+index 000000000..a5d6e1e3a
 --- /dev/null
 +++ b/packages/opencode/src/provider/config.ts
-@@ -0,0 +1,842 @@
+@@ -0,0 +1,857 @@
 +import type * as Provider from "./provider"
 +
 +/**
@@ -276,9 +276,24 @@ index 000000000..970557a47
 +        type: "explicit-breakpoint",
 +        property: "cacheControl",
 +        hierarchy: ["tools", "system", "messages"],
-+        // 1h TTL on long-lived prefix (matches anthropic; same Anthropic
-+        // backend on Google Vertex accepts ttl: "1h"). See B+E design doc.
-+        ttl: "1h",
++        // 5m TTL (default, marker omits the ttl field on the wire — see
++        // buildCacheControl). Vertex's strict input validation rejects the
++        // `ttl` field on `cache_control` because @ai-sdk/anthropic does NOT
++        // auto-inject the required `anthropic-beta:
++        // extended-cache-ttl-2025-04-11` header when ttl: "1h" is set
++        // (the SDK only validates the schema; the header is the caller's
++        // responsibility). The exact failure observed:
++        //   tools.14.custom.cache_control.ephemeral.ttl:
++        //   Extra inputs are not permitted
++        // Compounding factor: Opus 4.7 on Bedrock/Vertex has a documented
++        // regression rejecting unrecognized beta flags entirely (see
++        // anthropics/claude-code#49648), so even adding the beta header is
++        // not a guaranteed fix on Vertex. Direct Anthropic API does NOT
++        // need the beta header (1h TTL went GA there), which is why the
++        // `anthropic` block above stays at "1h" and only Vertex drops to
++        // "5m". See docs/plans/2026-04-21-cache-write-mitigation-design.md
++        // for the original B+E design.
++        ttl: "5m",
 +        minTokens: {
 +          "claude-opus-4": 4096,
 +          "claude-opus-4-5": 4096,
@@ -1890,9 +1905,9 @@ index 000000000..58ba8b201
 +    expect(config.cache.ttl).toBe("1h")
 +  })
 +
-+  test("google-vertex-anthropic default config now uses ttl: 1h", () => {
++  test("google-vertex-anthropic default config uses ttl: 5m (Vertex rejects ttl field without beta header)", () => {
 +    const config = ProviderConfig.defaults["google-vertex-anthropic"]
-+    expect(config.cache.ttl).toBe("1h")
++    expect(config.cache.ttl).toBe("5m")
 +  })
 +
 +  test("amazon-bedrock keeps 5m default (out of scope for B+E redesign)", () => {
@@ -2246,7 +2261,7 @@ index 7a7631710..98a5af495 100644
    })
  
 -  test("google-vertex-anthropic applies cache control", () => {
-+  test("google-vertex-anthropic applies B+E caching: 1h on system, 5m on user anchor", () => {
++  test("google-vertex-anthropic applies B+E caching: 5m on system + 5m on user anchor (Vertex rejects ttl field)", () => {
      const model = createModel({
        providerID: "google-vertex-anthropic",
        api: {
@@ -2254,13 +2269,13 @@ index 7a7631710..98a5af495 100644
  
      const result = ProviderTransform.message(msgs, model, {}) as any[]
  
-+    // google-vertex-anthropic uses anthropic cacheControl + B+E TTL strategy
++    // Vertex: 5m on system + user anchor (rejects ttl field without beta header)
      expect(result[0].providerOptions).toEqual({
        anthropic: {
 -        cacheControl: {
 -          type: "ephemeral",
 -        },
-+        cacheControl: { type: "ephemeral", ttl: "1h" },
++        cacheControl: { type: "ephemeral" },
        },
 -      openrouter: {
 -        cacheControl: {
