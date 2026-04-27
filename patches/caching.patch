@@ -1,17 +1,17 @@
 diff --git a/packages/opencode/src/config/agent.ts b/packages/opencode/src/config/agent.ts
-index 2978916..83d2709 100644
+index 1d1c66a13..87677ee3d 100644
 --- a/packages/opencode/src/config/agent.ts
 +++ b/packages/opencode/src/config/agent.ts
-@@ -4,7 +4,7 @@ import { Schema } from "effect"
- import z from "zod"
+@@ -3,7 +3,7 @@ export * as ConfigAgent from "./agent"
+ import { Exit, Schema, SchemaGetter } from "effect"
  import { Bus } from "@/bus"
  import { zod } from "@/util/effect-zod"
--import { PositiveInt } from "@/util/schema"
-+import { NonNegativeInt, PositiveInt } from "@/util/schema"
+-import { PositiveInt, withStatics } from "@/util/schema"
++import { NonNegativeInt, PositiveInt, withStatics } from "@/util/schema"
  import { Log } from "../util"
- import { NamedError } from "@opencode-ai/shared/util/error"
- import { Glob } from "@opencode-ai/shared/util/glob"
-@@ -47,6 +47,30 @@ const AgentSchema = Schema.StructWithRest(
+ import { NamedError } from "@opencode-ai/core/util/error"
+ import { Glob } from "@opencode-ai/core/util/glob"
+@@ -46,6 +46,30 @@ const AgentSchema = Schema.StructWithRest(
        description: "Maximum number of agentic iterations before forcing text-only response",
      }),
      maxSteps: Schema.optional(PositiveInt).annotate({ description: "@deprecated Use 'steps' field instead." }),
@@ -42,7 +42,7 @@ index 2978916..83d2709 100644
      permission: Schema.optional(ConfigPermission.Info),
    }),
    [Schema.Record(Schema.String, Schema.Any)],
-@@ -69,6 +93,8 @@ const KNOWN_KEYS = new Set([
+@@ -68,6 +92,8 @@ const KNOWN_KEYS = new Set([
    "permission",
    "disable",
    "tools",
@@ -52,7 +52,7 @@ index 2978916..83d2709 100644
  
  // Post-parse normalisation:
 diff --git a/packages/opencode/src/config/provider.ts b/packages/opencode/src/config/provider.ts
-index cd74694..febf76e 100644
+index cd7469435..febf76e7b 100644
 --- a/packages/opencode/src/config/provider.ts
 +++ b/packages/opencode/src/config/provider.ts
 @@ -1,6 +1,6 @@
@@ -96,7 +96,7 @@ index cd74694..febf76e 100644
    .pipe(withStatics((s) => ({ zod: zod(s) })))
 diff --git a/packages/opencode/src/provider/config.ts b/packages/opencode/src/provider/config.ts
 new file mode 100644
-index 0000000..ed3c5e6
+index 000000000..ed3c5e657
 --- /dev/null
 +++ b/packages/opencode/src/provider/config.ts
 @@ -0,0 +1,857 @@
@@ -958,7 +958,7 @@ index 0000000..ed3c5e6
 +  }
 +}
 diff --git a/packages/opencode/src/provider/transform.ts b/packages/opencode/src/provider/transform.ts
-index 50529c4..2020882 100644
+index b2e9b59a3..994ebc76e 100644
 --- a/packages/opencode/src/provider/transform.ts
 +++ b/packages/opencode/src/provider/transform.ts
 @@ -1,11 +1,11 @@
@@ -969,12 +969,12 @@ index 50529c4..2020882 100644
  import type * as Provider from "./provider"
  import type * as ModelsDev from "./models"
  import { iife } from "@/util/iife"
- import { Flag } from "@/flag/flag"
+ import { Flag } from "@opencode-ai/core/flag/flag"
 +import { ProviderConfig } from "./config"
  
  type Modality = NonNullable<ModelsDev.Model["modalities"]>["input"][number]
  
-@@ -226,32 +226,140 @@ function normalizeMessages(
+@@ -230,32 +230,140 @@ function normalizeMessages(
    return msgs
  }
  
@@ -1136,7 +1136,7 @@ index 50529c4..2020882 100644
      const useMessageLevelOptions =
        model.providerID === "anthropic" ||
        model.providerID.includes("bedrock") ||
-@@ -266,12 +374,22 @@ function applyCaching(msgs: ModelMessage[], model: Provider.Model): ModelMessage
+@@ -270,12 +378,22 @@ function applyCaching(msgs: ModelMessage[], model: Provider.Model): ModelMessage
          lastContent.type !== "tool-approval-request" &&
          lastContent.type !== "tool-approval-response"
        ) {
@@ -1161,7 +1161,7 @@ index 50529c4..2020882 100644
    }
  
    return msgs
-@@ -318,17 +436,11 @@ function unsupportedParts(msgs: ModelMessage[], model: Provider.Model): ModelMes
+@@ -322,17 +440,11 @@ function unsupportedParts(msgs: ModelMessage[], model: Provider.Model): ModelMes
  export function message(msgs: ModelMessage[], model: Provider.Model, options: Record<string, unknown>) {
    msgs = unsupportedParts(msgs, model)
    msgs = normalizeMessages(msgs, model, options)
@@ -1185,7 +1185,7 @@ index 50529c4..2020882 100644
    }
  
 diff --git a/packages/opencode/src/session/prompt.ts b/packages/opencode/src/session/prompt.ts
-index 3d07a96..a4e863a 100644
+index 861f7285c..aa8b19b65 100644
 --- a/packages/opencode/src/session/prompt.ts
 +++ b/packages/opencode/src/session/prompt.ts
 @@ -15,6 +15,7 @@ import type { JSONSchema7 } from "@ai-sdk/provider"
@@ -1196,7 +1196,7 @@ index 3d07a96..a4e863a 100644
  import { SystemPrompt } from "./system"
  import { Instruction } from "./instruction"
  import { Plugin } from "../plugin"
-@@ -522,6 +523,35 @@ NOTE: At any point in time through this workflow you should feel free to ask the
+@@ -523,6 +524,35 @@ NOTE: At any point in time through this workflow you should feel free to ask the
          tools[key] = item
        }
  
@@ -1234,7 +1234,7 @@ index 3d07a96..a4e863a 100644
  
 diff --git a/packages/opencode/test/provider/config.test.ts b/packages/opencode/test/provider/config.test.ts
 new file mode 100644
-index 0000000..c86c59c
+index 000000000..c86c59c8f
 --- /dev/null
 +++ b/packages/opencode/test/provider/config.test.ts
 @@ -0,0 +1,965 @@
@@ -2204,7 +2204,7 @@ index 0000000..c86c59c
 +  })
 +})
 diff --git a/packages/opencode/test/provider/transform.test.ts b/packages/opencode/test/provider/transform.test.ts
-index 791fcde..139efa4 100644
+index 791fcdedc..139efa48e 100644
 --- a/packages/opencode/test/provider/transform.test.ts
 +++ b/packages/opencode/test/provider/transform.test.ts
 @@ -1914,7 +1914,7 @@ describe("ProviderTransform.message - cache control on gateway", () => {
@@ -2472,7 +2472,7 @@ index 791fcde..139efa4 100644
  
  describe("ProviderTransform.variants", () => {
 diff --git a/packages/opencode/test/session/llm.test.ts b/packages/opencode/test/session/llm.test.ts
-index 4d82096..baa13c6 100644
+index 4d82096f3..baa13c69e 100644
 --- a/packages/opencode/test/session/llm.test.ts
 +++ b/packages/opencode/test/session/llm.test.ts
 @@ -1120,10 +1120,25 @@ describe("session.llm.stream", () => {
