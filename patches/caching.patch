@@ -5,12 +5,12 @@ index 1d1c66a13..87677ee3d 100644
 @@ -3,7 +3,7 @@ export * as ConfigAgent from "./agent"
  import { Exit, Schema, SchemaGetter } from "effect"
  import { Bus } from "@/bus"
- import { zod } from "@/util/effect-zod"
--import { PositiveInt, withStatics } from "@/util/schema"
-+import { NonNegativeInt, PositiveInt, withStatics } from "@/util/schema"
- import { Log } from "../util"
+-import { PositiveInt } from "@opencode-ai/core/schema"
++import { NonNegativeInt, PositiveInt } from "@opencode-ai/core/schema"
+ import * as Log from "@opencode-ai/core/util/log"
  import { NamedError } from "@opencode-ai/core/util/error"
  import { Glob } from "@opencode-ai/core/util/glob"
+ import { configEntryNameFromPath } from "./entry-name"
 @@ -46,6 +46,30 @@ const AgentSchema = Schema.StructWithRest(
        description: "Maximum number of agentic iterations before forcing text-only response",
      }),
@@ -55,15 +55,14 @@ diff --git a/packages/opencode/src/config/provider.ts b/packages/opencode/src/co
 index cd7469435..febf76e7b 100644
 --- a/packages/opencode/src/config/provider.ts
 +++ b/packages/opencode/src/config/provider.ts
-@@ -1,6 +1,6 @@
+@@ -1,5 +1,5 @@
  import { Schema } from "effect"
- import { zod } from "@/util/effect-zod"
--import { PositiveInt, withStatics } from "@/util/schema"
-+import { NonNegativeInt, PositiveInt, withStatics } from "@/util/schema"
+-import { PositiveInt } from "@opencode-ai/core/schema"
++import { NonNegativeInt, PositiveInt } from "@opencode-ai/core/schema"
+ import { ModelStatus } from "@/provider/model-status"
  
  export const Model = Schema.Struct({
-   id: Schema.optional(Schema.String),
-@@ -105,6 +105,30 @@ export const Info = Schema.Struct({
+@@ -105,4 +105,28 @@ export const Info = Schema.Struct({
      ),
    ),
    models: Schema.optional(Schema.Record(Schema.String, Model)),
@@ -91,9 +90,7 @@ index cd7469435..febf76e7b 100644
 +      ).annotate({ description: "Sections that should have cache breakpoints applied" }),
 +    }),
 +  ).annotate({ description: "Provider-specific prompt ordering configuration" }),
- })
-   .annotate({ identifier: "ProviderConfig" })
-   .pipe(withStatics((s) => ({ zod: zod(s) })))
+ }).annotate({ identifier: "ProviderConfig" })
 diff --git a/packages/opencode/src/provider/config.ts b/packages/opencode/src/provider/config.ts
 new file mode 100644
 index 000000000..ed3c5e657
@@ -961,13 +958,13 @@ diff --git a/packages/opencode/src/provider/transform.ts b/packages/opencode/src
 index b2e9b59a3..994ebc76e 100644
 --- a/packages/opencode/src/provider/transform.ts
 +++ b/packages/opencode/src/provider/transform.ts
-@@ -1,11 +1,11 @@
- import type { ModelMessage } from "ai"
+@@ -1,10 +1,11 @@
+ import type { ModelMessage, ToolResultPart } from "ai"
 -import { mergeDeep, unique } from "remeda"
++import { mergeDeep } from "remeda"
  import type { JSONSchema7 } from "@ai-sdk/provider"
- import type { JSONSchema } from "zod/v4/core"
  import type * as Provider from "./provider"
- import type * as ModelsDev from "./models"
+ import type * as ModelsDev from "@opencode-ai/core/models"
  import { iife } from "@/util/iife"
  import { Flag } from "@opencode-ai/core/flag/flag"
 +import { ProviderConfig } from "./config"
@@ -1191,7 +1188,7 @@ index 861f7285c..aa8b19b65 100644
 @@ -15,6 +15,7 @@ import type { JSONSchema7 } from "@ai-sdk/provider"
  import { SessionCompaction } from "./compaction"
  import { Bus } from "../bus"
- import { ProviderTransform } from "../provider"
+ import { ProviderTransform } from "@/provider/transform"
 +import { ProviderConfig } from "../provider/config"
  import { SystemPrompt } from "./system"
  import { Instruction } from "./instruction"
