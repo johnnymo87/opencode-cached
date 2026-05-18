@@ -1098,7 +1098,10 @@ index b2e9b59a3..994ebc76e 100644
 +  // Falls back to empty when there are no user messages (system-only call).
 +  const lastUser = (() => {
 +    for (let i = msgs.length - 1; i >= 0; i--) {
-+      if (msgs[i].role === "user") return [msgs[i]]
++      if (msgs[i].role === "user") {
++        const isTelemetry = Array.isArray(msgs[i].content) ? msgs[i].content.some((c: any) => c.type === "text" && c.text.includes("<context_usage>")) : typeof msgs[i].content === "string" && msgs[i].content.includes("<context_usage>");
++        if (!isTelemetry) return [msgs[i]]
++      }
 +    }
 +    return []
 +  })()
