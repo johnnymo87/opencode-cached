@@ -1,8 +1,9 @@
 diff --git a/packages/opencode/src/config/agent.ts b/packages/opencode/src/config/agent.ts
-index 1d1c66a13..87677ee3d 100644
+index a6719e867..2a2d13dc9 100644
 --- a/packages/opencode/src/config/agent.ts
 +++ b/packages/opencode/src/config/agent.ts
-@@ -3,7 +3,7 @@ export * as ConfigAgent from "./agent"
+@@ -2,7 +2,7 @@ export * as ConfigAgent from "./agent"
+ 
  import { Exit, Schema, SchemaGetter } from "effect"
  import { Bus } from "@/bus"
 -import { PositiveInt } from "@opencode-ai/core/schema"
@@ -10,8 +11,7 @@ index 1d1c66a13..87677ee3d 100644
  import * as Log from "@opencode-ai/core/util/log"
  import { NamedError } from "@opencode-ai/core/util/error"
  import { Glob } from "@opencode-ai/core/util/glob"
- import { configEntryNameFromPath } from "./entry-name"
-@@ -46,6 +46,30 @@ const AgentSchema = Schema.StructWithRest(
+@@ -45,6 +45,30 @@ const AgentSchema = Schema.StructWithRest(
        description: "Maximum number of agentic iterations before forcing text-only response",
      }),
      maxSteps: Schema.optional(PositiveInt).annotate({ description: "@deprecated Use 'steps' field instead." }),
@@ -42,7 +42,7 @@ index 1d1c66a13..87677ee3d 100644
      permission: Schema.optional(ConfigPermission.Info),
    }),
    [Schema.Record(Schema.String, Schema.Any)],
-@@ -68,6 +92,8 @@ const KNOWN_KEYS = new Set([
+@@ -67,6 +91,8 @@ const KNOWN_KEYS = new Set([
    "permission",
    "disable",
    "tools",
@@ -52,7 +52,7 @@ index 1d1c66a13..87677ee3d 100644
  
  // Post-parse normalisation:
 diff --git a/packages/opencode/src/config/provider.ts b/packages/opencode/src/config/provider.ts
-index cd7469435..febf76e7b 100644
+index 5635512ce..0afbefbcb 100644
 --- a/packages/opencode/src/config/provider.ts
 +++ b/packages/opencode/src/config/provider.ts
 @@ -1,5 +1,5 @@
@@ -62,7 +62,7 @@ index cd7469435..febf76e7b 100644
  import { ModelStatus } from "@/provider/model-status"
  
  export const Model = Schema.Struct({
-@@ -105,4 +105,28 @@ export const Info = Schema.Struct({
+@@ -105,6 +105,30 @@ export const Info = Schema.Struct({
      ),
    ),
    models: Schema.optional(Schema.Record(Schema.String, Model)),
@@ -91,6 +91,8 @@ index cd7469435..febf76e7b 100644
 +    }),
 +  ).annotate({ description: "Provider-specific prompt ordering configuration" }),
  }).annotate({ identifier: "ProviderConfig" })
+ export type Info = Schema.Schema.Type<typeof Info>
+ 
 diff --git a/packages/opencode/src/provider/config.ts b/packages/opencode/src/provider/config.ts
 new file mode 100644
 index 000000000..ed3c5e657
@@ -955,7 +957,7 @@ index 000000000..ed3c5e657
 +  }
 +}
 diff --git a/packages/opencode/src/provider/transform.ts b/packages/opencode/src/provider/transform.ts
-index b2e9b59a3..994ebc76e 100644
+index 56a35d9af..ad1ebb0a0 100644
 --- a/packages/opencode/src/provider/transform.ts
 +++ b/packages/opencode/src/provider/transform.ts
 @@ -1,10 +1,11 @@
@@ -971,7 +973,7 @@ index b2e9b59a3..994ebc76e 100644
  
  type Modality = NonNullable<ModelsDev.Model["modalities"]>["input"][number]
  
-@@ -230,32 +230,140 @@ function normalizeMessages(
+@@ -338,32 +339,143 @@ function normalizeMessages(
    return msgs
  }
  
@@ -1100,7 +1102,7 @@ index b2e9b59a3..994ebc76e 100644
 +    for (let i = msgs.length - 1; i >= 0; i--) {
 +      if (msgs[i].role === "user") {
 +        const isTelemetry = Array.isArray(msgs[i].content) ? msgs[i].content.some((c: any) => c.type === "text" && c.text.includes("<context_usage>")) : typeof msgs[i].content === "string" && msgs[i].content.includes("<context_usage>");
-+        if (!isTelemetry) return [msgs[i]]
++        if (!isTelemetry) return [msgs[i]];
 +      }
 +    }
 +    return []
@@ -1136,7 +1138,7 @@ index b2e9b59a3..994ebc76e 100644
      const useMessageLevelOptions =
        model.providerID === "anthropic" ||
        model.providerID.includes("bedrock") ||
-@@ -270,12 +378,22 @@ function applyCaching(msgs: ModelMessage[], model: Provider.Model): ModelMessage
+@@ -378,12 +490,22 @@ function applyCaching(msgs: ModelMessage[], model: Provider.Model): ModelMessage
          lastContent.type !== "tool-approval-request" &&
          lastContent.type !== "tool-approval-response"
        ) {
@@ -1161,7 +1163,7 @@ index b2e9b59a3..994ebc76e 100644
    }
  
    return msgs
-@@ -322,17 +440,11 @@ function unsupportedParts(msgs: ModelMessage[], model: Provider.Model): ModelMes
+@@ -430,17 +552,11 @@ function unsupportedParts(msgs: ModelMessage[], model: Provider.Model): ModelMes
  export function message(msgs: ModelMessage[], model: Provider.Model, options: Record<string, unknown>) {
    msgs = unsupportedParts(msgs, model)
    msgs = normalizeMessages(msgs, model, options)
@@ -1185,10 +1187,10 @@ index b2e9b59a3..994ebc76e 100644
    }
  
 diff --git a/packages/opencode/src/session/prompt.ts b/packages/opencode/src/session/prompt.ts
-index 861f7285c..aa8b19b65 100644
+index ba9a4d6f1..265dc6d1b 100644
 --- a/packages/opencode/src/session/prompt.ts
 +++ b/packages/opencode/src/session/prompt.ts
-@@ -15,6 +15,7 @@ import type { JSONSchema7 } from "@ai-sdk/provider"
+@@ -13,6 +13,7 @@ import type { JSONSchema7 } from "@ai-sdk/provider"
  import { SessionCompaction } from "./compaction"
  import { Bus } from "../bus"
  import { ProviderTransform } from "@/provider/transform"
@@ -1196,7 +1198,7 @@ index 861f7285c..aa8b19b65 100644
  import { SystemPrompt } from "./system"
  import { Instruction } from "./instruction"
  import { Plugin } from "../plugin"
-@@ -523,6 +524,35 @@ NOTE: At any point in time through this workflow you should feel free to ask the
+@@ -696,6 +697,35 @@ NOTE: At any point in time through this workflow you should feel free to ask the
          tools[key] = item
        }
  
@@ -2204,10 +2206,10 @@ index 000000000..c86c59c8f
 +  })
 +})
 diff --git a/packages/opencode/test/provider/transform.test.ts b/packages/opencode/test/provider/transform.test.ts
-index 791fcdedc..139efa48e 100644
+index 90e2a177f..0437ebded 100644
 --- a/packages/opencode/test/provider/transform.test.ts
 +++ b/packages/opencode/test/provider/transform.test.ts
-@@ -1914,7 +1914,7 @@ describe("ProviderTransform.message - cache control on gateway", () => {
+@@ -2239,7 +2239,7 @@ describe("ProviderTransform.message - cache control on gateway", () => {
      expect(result[0].providerOptions).toBeUndefined()
    })
  
@@ -2216,7 +2218,7 @@ index 791fcdedc..139efa48e 100644
      const model = createModel({
        providerID: "anthropic",
        api: {
-@@ -1936,41 +1936,21 @@ describe("ProviderTransform.message - cache control on gateway", () => {
+@@ -2261,41 +2261,21 @@ describe("ProviderTransform.message - cache control on gateway", () => {
  
      const result = ProviderTransform.message(msgs, model, {}) as any[]
  
@@ -2266,7 +2268,7 @@ index 791fcdedc..139efa48e 100644
      const model = createModel({
        providerID: "google-vertex-anthropic",
        api: {
-@@ -1993,39 +1973,181 @@ describe("ProviderTransform.message - cache control on gateway", () => {
+@@ -2318,39 +2298,181 @@ describe("ProviderTransform.message - cache control on gateway", () => {
  
      const result = ProviderTransform.message(msgs, model, {}) as any[]
  
@@ -2472,10 +2474,10 @@ index 791fcdedc..139efa48e 100644
  
  describe("ProviderTransform.variants", () => {
 diff --git a/packages/opencode/test/session/llm.test.ts b/packages/opencode/test/session/llm.test.ts
-index 4d82096f3..baa13c69e 100644
+index 3a949287e..b244651ef 100644
 --- a/packages/opencode/test/session/llm.test.ts
 +++ b/packages/opencode/test/session/llm.test.ts
-@@ -1120,10 +1120,25 @@ describe("session.llm.stream", () => {
+@@ -1140,10 +1140,25 @@ describe("session.llm.stream", () => {
          const body = capture.body
  
          expect(capture.url.pathname.endsWith("/messages")).toBe(true)
@@ -2502,7 +2504,7 @@ index 4d82096f3..baa13c69e 100644
            },
            {
              role: "assistant",
-@@ -1143,9 +1158,6 @@ describe("session.llm.stream", () => {
+@@ -1163,9 +1178,6 @@ describe("session.llm.stream", () => {
                  id: "toolu_01APxrADs7VozN8uWzw9WwHr",
                  name: "glob",
                  input: { pattern: "**/*.pdf", path: "/root" },
@@ -2512,7 +2514,7 @@ index 4d82096f3..baa13c69e 100644
                },
              ],
            },
-@@ -1161,9 +1173,6 @@ describe("session.llm.stream", () => {
+@@ -1181,9 +1193,6 @@ describe("session.llm.stream", () => {
                  type: "tool_result",
                  tool_use_id: "toolu_01APxrADs7VozN8uWzw9WwHr",
                  content: "No files found",
