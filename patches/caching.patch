@@ -1,17 +1,17 @@
 diff --git a/packages/opencode/src/config/agent.ts b/packages/opencode/src/config/agent.ts
-index a6719e867..2a2d13dc9 100644
+index 379301cd2..c83a0cb4e 100644
 --- a/packages/opencode/src/config/agent.ts
 +++ b/packages/opencode/src/config/agent.ts
 @@ -2,7 +2,7 @@ export * as ConfigAgent from "./agent"
  
+ import path from "path"
  import { Exit, Schema, SchemaGetter } from "effect"
- import { Bus } from "@/bus"
 -import { PositiveInt } from "@opencode-ai/core/schema"
 +import { NonNegativeInt, PositiveInt } from "@opencode-ai/core/schema"
  import * as Log from "@opencode-ai/core/util/log"
- import { NamedError } from "@opencode-ai/core/util/error"
  import { Glob } from "@opencode-ai/core/util/glob"
-@@ -45,6 +45,30 @@ const AgentSchema = Schema.StructWithRest(
+ import { configEntryNameFromPath } from "./entry-name"
+@@ -44,6 +44,30 @@ const AgentSchema = Schema.StructWithRest(
        description: "Maximum number of agentic iterations before forcing text-only response",
      }),
      maxSteps: Schema.optional(PositiveInt).annotate({ description: "@deprecated Use 'steps' field instead." }),
@@ -42,7 +42,7 @@ index a6719e867..2a2d13dc9 100644
      permission: Schema.optional(ConfigPermission.Info),
    }),
    [Schema.Record(Schema.String, Schema.Any)],
-@@ -67,6 +91,8 @@ const KNOWN_KEYS = new Set([
+@@ -66,6 +90,8 @@ const KNOWN_KEYS = new Set([
    "permission",
    "disable",
    "tools",
@@ -957,23 +957,22 @@ index 000000000..ed3c5e657
 +  }
 +}
 diff --git a/packages/opencode/src/provider/transform.ts b/packages/opencode/src/provider/transform.ts
-index 56a35d9af..ad1ebb0a0 100644
+index 3104468ab..8787580b2 100644
 --- a/packages/opencode/src/provider/transform.ts
 +++ b/packages/opencode/src/provider/transform.ts
-@@ -1,10 +1,11 @@
+@@ -1,9 +1,10 @@
  import type { ModelMessage, ToolResultPart } from "ai"
 -import { mergeDeep, unique } from "remeda"
 +import { mergeDeep } from "remeda"
  import type { JSONSchema7 } from "@ai-sdk/provider"
  import type * as Provider from "./provider"
- import type * as ModelsDev from "@opencode-ai/core/models"
+ import type * as ModelsDev from "@opencode-ai/core/models-dev"
  import { iife } from "@/util/iife"
- import { Flag } from "@opencode-ai/core/flag/flag"
 +import { ProviderConfig } from "./config"
  
  type Modality = NonNullable<ModelsDev.Model["modalities"]>["input"][number]
  
-@@ -338,32 +339,143 @@ function normalizeMessages(
+@@ -337,32 +338,143 @@ function normalizeMessages(
    return msgs
  }
  
@@ -1138,7 +1137,7 @@ index 56a35d9af..ad1ebb0a0 100644
      const useMessageLevelOptions =
        model.providerID === "anthropic" ||
        model.providerID.includes("bedrock") ||
-@@ -378,12 +490,22 @@ function applyCaching(msgs: ModelMessage[], model: Provider.Model): ModelMessage
+@@ -377,12 +489,22 @@ function applyCaching(msgs: ModelMessage[], model: Provider.Model): ModelMessage
          lastContent.type !== "tool-approval-request" &&
          lastContent.type !== "tool-approval-response"
        ) {
@@ -1163,7 +1162,7 @@ index 56a35d9af..ad1ebb0a0 100644
    }
  
    return msgs
-@@ -430,17 +552,11 @@ function unsupportedParts(msgs: ModelMessage[], model: Provider.Model): ModelMes
+@@ -429,17 +551,11 @@ function unsupportedParts(msgs: ModelMessage[], model: Provider.Model): ModelMes
  export function message(msgs: ModelMessage[], model: Provider.Model, options: Record<string, unknown>) {
    msgs = unsupportedParts(msgs, model)
    msgs = normalizeMessages(msgs, model, options)
@@ -1186,53 +1185,53 @@ index 56a35d9af..ad1ebb0a0 100644
      msgs = applyCaching(msgs, model)
    }
  
-diff --git a/packages/opencode/src/session/prompt.ts b/packages/opencode/src/session/prompt.ts
-index ba9a4d6f1..265dc6d1b 100644
---- a/packages/opencode/src/session/prompt.ts
-+++ b/packages/opencode/src/session/prompt.ts
-@@ -13,6 +13,7 @@ import type { JSONSchema7 } from "@ai-sdk/provider"
- import { SessionCompaction } from "./compaction"
- import { Bus } from "../bus"
+diff --git a/packages/opencode/src/session/tools.ts b/packages/opencode/src/session/tools.ts
+index f45df9d0f..89aa32d46 100644
+--- a/packages/opencode/src/session/tools.ts
++++ b/packages/opencode/src/session/tools.ts
+@@ -1,6 +1,7 @@
+ import { Agent } from "@/agent/agent"
+ import { Provider } from "@/provider/provider"
  import { ProviderTransform } from "@/provider/transform"
-+import { ProviderConfig } from "../provider/config"
- import { SystemPrompt } from "./system"
- import { Instruction } from "./instruction"
- import { Plugin } from "../plugin"
-@@ -696,6 +697,35 @@ NOTE: At any point in time through this workflow you should feel free to ask the
-         tools[key] = item
-       }
++import { ProviderConfig } from "@/provider/config"
+ import { MCP } from "@/mcp"
+ import { Permission } from "@/permission"
+ import { Tool } from "@/tool/tool"
+@@ -202,6 +203,35 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
+     tools[key] = item
+   }
  
-+      // Sort tools for cache prefix stability when provider config requires it
-+      const providerID = ProviderConfig.getConfigProviderID(input.model)
-+      const providerConfig = ProviderConfig.getConfig(providerID, input.model)
-+      if (providerConfig.promptOrder.sortTools) {
-+        const entries = Object.entries(tools).sort(([a], [b]) => a.localeCompare(b))
-+        for (const key of Object.keys(tools)) delete tools[key]
-+        for (const [key, value] of entries) tools[key] = value
-+      }
++  // Sort tools for cache prefix stability when provider config requires it
++  const providerID = ProviderConfig.getConfigProviderID(input.model)
++  const providerConfig = ProviderConfig.getConfig(providerID, input.model)
++  if (providerConfig.promptOrder.sortTools) {
++    const entries = Object.entries(tools).sort(([a], [b]) => a.localeCompare(b))
++    for (const key of Object.keys(tools)) delete tools[key]
++    for (const [key, value] of entries) tools[key] = value
++  }
 +
-+      // Apply cache breakpoint to last tool for explicit-caching providers
-+      if (
-+        providerConfig.cache.enabled &&
-+        providerConfig.promptOrder.toolCaching &&
-+        ProviderConfig.supportsExplicitCaching(providerID)
-+      ) {
-+        const toolKeys = Object.keys(tools)
-+        const lastToolKey = toolKeys[toolKeys.length - 1]
-+        if (lastToolKey) {
-+          const cacheOptions = ProviderTransform.buildToolCacheOptions(input.model)
-+          if (Object.keys(cacheOptions).length > 0) {
-+            const lastTool = tools[lastToolKey]
-+            lastTool.providerOptions = {
-+              ...lastTool.providerOptions,
-+              ...cacheOptions,
-+            }
-+          }
++  // Apply cache breakpoint to last tool for explicit-caching providers
++  if (
++    providerConfig.cache.enabled &&
++    providerConfig.promptOrder.toolCaching &&
++    ProviderConfig.supportsExplicitCaching(providerID)
++  ) {
++    const toolKeys = Object.keys(tools)
++    const lastToolKey = toolKeys[toolKeys.length - 1]
++    if (lastToolKey) {
++      const cacheOptions = ProviderTransform.buildToolCacheOptions(input.model)
++      if (Object.keys(cacheOptions).length > 0) {
++        const lastTool = tools[lastToolKey]
++        lastTool.providerOptions = {
++          ...lastTool.providerOptions,
++          ...cacheOptions,
 +        }
 +      }
++    }
++  }
 +
-       return tools
-     })
+   return tools
+ })
  
 diff --git a/packages/opencode/test/provider/config.test.ts b/packages/opencode/test/provider/config.test.ts
 new file mode 100644
@@ -2473,54 +2472,3 @@ index 90e2a177f..0437ebded 100644
  })
  
  describe("ProviderTransform.variants", () => {
-diff --git a/packages/opencode/test/session/llm.test.ts b/packages/opencode/test/session/llm.test.ts
-index 3a949287e..b244651ef 100644
---- a/packages/opencode/test/session/llm.test.ts
-+++ b/packages/opencode/test/session/llm.test.ts
-@@ -1140,10 +1140,25 @@ describe("session.llm.stream", () => {
-         const body = capture.body
- 
-         expect(capture.url.pathname.endsWith("/messages")).toBe(true)
-+        // B+E caching: cache_control anchors on the LAST USER MESSAGE
-+        // (the original prompt at index 0 — tool_results are sent as
-+        // role: "tool" in ModelMessage form, not role: "user"), with 5m
-+        // TTL (default; ttl field omitted from marker shape).
-+        // Assistant tool_use and tool blocks no longer get cache_control,
-+        // because they are part of the moving tail that cache-bursts every
-+        // turn under the old "last 2 non-system" policy.
-         expect(body.messages).toStrictEqual([
-           {
-             role: "user",
--            content: [{ type: "text", text: "Can you check whether there are any PDF files in my home directory?" }],
-+            content: [
-+              {
-+                type: "text",
-+                text: "Can you check whether there are any PDF files in my home directory?",
-+                cache_control: {
-+                  type: "ephemeral",
-+                },
-+              },
-+            ],
-           },
-           {
-             role: "assistant",
-@@ -1163,9 +1178,6 @@ describe("session.llm.stream", () => {
-                 id: "toolu_01APxrADs7VozN8uWzw9WwHr",
-                 name: "glob",
-                 input: { pattern: "**/*.pdf", path: "/root" },
--                cache_control: {
--                  type: "ephemeral",
--                },
-               },
-             ],
-           },
-@@ -1181,9 +1193,6 @@ describe("session.llm.stream", () => {
-                 type: "tool_result",
-                 tool_use_id: "toolu_01APxrADs7VozN8uWzw9WwHr",
-                 content: "No files found",
--                cache_control: {
--                  type: "ephemeral",
--                },
-               },
-             ],
-           },
