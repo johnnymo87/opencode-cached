@@ -276,24 +276,24 @@ index 000000000..ed3c5e657
 +        type: "explicit-breakpoint",
 +        property: "cacheControl",
 +        hierarchy: ["tools", "system", "messages"],
-+        // 5m TTL (default, marker omits the ttl field on the wire — see
-+        // buildCacheControl). Vertex's strict input validation rejects the
-+        // `ttl` field on `cache_control` because @ai-sdk/anthropic does NOT
-+        // auto-inject the required `anthropic-beta:
-+        // extended-cache-ttl-2025-04-11` header when ttl: "1h" is set
-+        // (the SDK only validates the schema; the header is the caller's
-+        // responsibility). The exact failure observed:
-+        //   tools.14.custom.cache_control.ephemeral.ttl:
-+        //   Extra inputs are not permitted
-+        // Compounding factor: Opus 4.7 on Bedrock/Vertex has a documented
-+        // regression rejecting unrecognized beta flags entirely (see
-+        // anthropics/claude-code#49648), so even adding the beta header is
-+        // not a guaranteed fix on Vertex. Direct Anthropic API does NOT
-+        // need the beta header (1h TTL went GA there), which is why the
-+        // `anthropic` block above stays at "1h" and only Vertex drops to
-+        // "5m". See docs/plans/2026-04-21-cache-write-mitigation-design.md
-+        // for the original B+E design.
-+        ttl: "5m",
++        // 1h TTL on the long-lived tools+system breakpoints (the moving
++        // last-user-message anchor stays 5m via anchorOptions). Verified
++        // 2026-05-29 with a raw :rawPredict probe against Vertex global on
++        // claude-opus-4-8: cache_control {type:"ephemeral", ttl:"1h"} is
++        // accepted HEADER-FREE (no extended-cache-ttl-2025-04-11 beta) on
++        // both system AND tools breakpoints, writes to the 1h tier
++        // (usage.cache_creation.ephemeral_1h_input_tokens), and the entry
++        // survives a >5min gap (cache_read after ~7min, no rewrite).
++        // This supersedes the earlier 5m-only decision: the April-2026
++        // failure (tools.N.custom.cache_control.ephemeral.ttl: "Extra
++        // inputs are not permitted") predates Vertex 1h GA and/or was the
++        // Bedrock-specific Opus-4.7 beta-flag regression
++        // (anthropics/claude-code#49648), which does NOT affect header-free
++        // ttl:"1h" on Vertex Opus 4.x today. Google + Anthropic docs both
++        // now list 1h TTL as supported on Vertex for current Claude models
++        // (only old 3.5/3.7 Sonnet + 3 Opus excluded). 1h breakpoints must
++        // precede the 5m anchor in prefix order — satisfied by tools/system.
++        ttl: "1h",
 +        minTokens: {
 +          "claude-opus-4": 4096,
 +          "claude-opus-4-5": 4096,
@@ -1907,9 +1907,9 @@ index 000000000..c86c59c8f
 +    expect(config.cache.ttl).toBe("1h")
 +  })
 +
-+  test("google-vertex-anthropic default config uses ttl: 5m (Vertex rejects ttl field without beta header)", () => {
++  test("google-vertex-anthropic default config uses ttl: 1h (Vertex Opus 4.x accepts header-free ttl:1h, verified 2026-05-29)", () => {
 +    const config = ProviderConfig.defaults["google-vertex-anthropic"]
-+    expect(config.cache.ttl).toBe("5m")
++    expect(config.cache.ttl).toBe("1h")
 +  })
 +
 +  test("amazon-bedrock keeps 5m default (out of scope for B+E redesign)", () => {
