@@ -1,5 +1,5 @@
 diff --git a/packages/opencode/src/config/agent.ts b/packages/opencode/src/config/agent.ts
-index 379301cd2..c83a0cb4e 100644
+index 379301c..c83a0cb 100644
 --- a/packages/opencode/src/config/agent.ts
 +++ b/packages/opencode/src/config/agent.ts
 @@ -2,7 +2,7 @@ export * as ConfigAgent from "./agent"
@@ -52,7 +52,7 @@ index 379301cd2..c83a0cb4e 100644
  
  // Post-parse normalisation:
 diff --git a/packages/opencode/src/config/provider.ts b/packages/opencode/src/config/provider.ts
-index 5635512ce..0afbefbcb 100644
+index a7b6fef..6cbcad9 100644
 --- a/packages/opencode/src/config/provider.ts
 +++ b/packages/opencode/src/config/provider.ts
 @@ -1,5 +1,5 @@
@@ -62,7 +62,7 @@ index 5635512ce..0afbefbcb 100644
  import { ModelStatus } from "@/provider/model-status"
  
  export const Model = Schema.Struct({
-@@ -105,6 +105,30 @@ export const Info = Schema.Struct({
+@@ -114,6 +114,30 @@ export const Info = Schema.Struct({
      ),
    ),
    models: Schema.optional(Schema.Record(Schema.String, Model)),
@@ -95,7 +95,7 @@ index 5635512ce..0afbefbcb 100644
  
 diff --git a/packages/opencode/src/provider/config.ts b/packages/opencode/src/provider/config.ts
 new file mode 100644
-index 000000000..ed3c5e657
+index 0000000..4ac848d
 --- /dev/null
 +++ b/packages/opencode/src/provider/config.ts
 @@ -0,0 +1,857 @@
@@ -957,7 +957,7 @@ index 000000000..ed3c5e657
 +  }
 +}
 diff --git a/packages/opencode/src/provider/transform.ts b/packages/opencode/src/provider/transform.ts
-index 3104468ab..8787580b2 100644
+index ea55bb2..8bfad7f 100644
 --- a/packages/opencode/src/provider/transform.ts
 +++ b/packages/opencode/src/provider/transform.ts
 @@ -1,9 +1,10 @@
@@ -972,7 +972,7 @@ index 3104468ab..8787580b2 100644
  
  type Modality = NonNullable<ModelsDev.Model["modalities"]>["input"][number]
  
-@@ -337,32 +338,143 @@ function normalizeMessages(
+@@ -342,32 +343,173 @@ function normalizeMessages(
    return msgs
  }
  
@@ -1095,14 +1095,44 @@ index 3104468ab..8787580b2 100644
 -    alibaba: {
 -      cacheControl: { type: "ephemeral" },
 -    },
-+  // Conversation anchor: the LAST USER MESSAGE (a stable boundary).
-+  // Falls back to empty when there are no user messages (system-only call).
-+  const lastUser = (() => {
++  // A content block is cacheable if Anthropic permits a cache_control marker on
++  // it. Thinking/reasoning blocks are NOT (Anthropic rejects cache_control on
++  // them); tool-approval pseudo-blocks aren't real content.
++  const isCacheableBlock = (c: any) =>
++    c &&
++    typeof c === "object" &&
++    c.type !== "reasoning" &&
++    c.type !== "redacted-reasoning" &&
++    c.type !== "tool-approval-request" &&
++    c.type !== "tool-approval-response"
++  const isTelemetryMessage = (msg: ModelMessage) =>
++    Array.isArray(msg.content)
++      ? msg.content.some((c: any) => c.type === "text" && typeof c.text === "string" && c.text.includes("<context_usage>"))
++      : typeof msg.content === "string" && msg.content.includes("<context_usage>")
++  const hasCacheableContent = (msg: ModelMessage) =>
++    Array.isArray(msg.content)
++      ? (msg.content as any[]).some((c) => isCacheableBlock(c))
++      : typeof msg.content === "string" && msg.content.length > 0
++
++  // Conversation anchor: the MOVING TAIL — the last non-system message that has
++  // a cacheable content block. In an append-only agent tool loop the tail is
++  // assistant + tool-result messages (role "assistant"/"tool" in the AI SDK
++  // ModelMessage shape), so anchoring on the last *user* message pinned the
++  // breakpoint to the original human prompt and never cached the growing tail.
++  // Vertex/Bedrock Claude have NO automatic tail caching (unlike first-party
++  // Anthropic top-level auto-cache), so the explicit breakpoint MUST advance to
++  // the tail. The earlier prefix stays byte-identical across turns, which is
++  // exactly Anthropic's documented append-only caching pattern. Skips the
++  // synthetic <context_usage> telemetry message and any message whose only
++  // content is a thinking/reasoning block. Falls back to empty for a
++  // system-only call.
++  const conversationAnchor = (() => {
 +    for (let i = msgs.length - 1; i >= 0; i--) {
-+      if (msgs[i].role === "user") {
-+        const isTelemetry = Array.isArray(msgs[i].content) ? msgs[i].content.some((c: any) => c.type === "text" && c.text.includes("<context_usage>")) : typeof msgs[i].content === "string" && msgs[i].content.includes("<context_usage>");
-+        if (!isTelemetry) return [msgs[i]];
-+      }
++      const msg = msgs[i]
++      if (msg.role === "system") continue
++      if (isTelemetryMessage(msg)) continue
++      if (!hasCacheableContent(msg)) continue
++      return [msg]
 +    }
 +    return []
 +  })()
@@ -1116,7 +1146,7 @@ index 3104468ab..8787580b2 100644
 +  // in the message array, so this order is correct.
 +  //
 +  // Dedupe by message identity (no message should ever appear in both system
-+  // and lastUser, but be defensive in case of weird input shapes).
++  // and the conversation anchor, but be defensive in case of weird input shapes).
 +  const seen = new Set<ModelMessage>()
 +  const targets: Array<[ModelMessage, Record<string, Record<string, any>>]> = []
 +  for (const m of system) {
@@ -1124,7 +1154,7 @@ index 3104468ab..8787580b2 100644
 +    seen.add(m)
 +    targets.push([m, longTtlOptions])
    }
-+  for (const m of lastUser) {
++  for (const m of conversationAnchor) {
 +    if (seen.has(m)) continue
 +    seen.add(m)
 +    targets.push([m, anchorOptions])
@@ -1137,11 +1167,29 @@ index 3104468ab..8787580b2 100644
      const useMessageLevelOptions =
        model.providerID === "anthropic" ||
        model.providerID.includes("bedrock") ||
-@@ -377,12 +489,22 @@ function applyCaching(msgs: ModelMessage[], model: Provider.Model): ModelMessage
-         lastContent.type !== "tool-approval-request" &&
-         lastContent.type !== "tool-approval-response"
-       ) {
+@@ -375,19 +517,33 @@ function applyCaching(msgs: ModelMessage[], model: Provider.Model): ModelMessage
+     const shouldUseContentOptions = !useMessageLevelOptions && Array.isArray(msg.content) && msg.content.length > 0
+ 
+     if (shouldUseContentOptions) {
+-      const lastContent = msg.content[msg.content.length - 1]
+-      if (
+-        lastContent &&
+-        typeof lastContent === "object" &&
+-        lastContent.type !== "tool-approval-request" &&
+-        lastContent.type !== "tool-approval-response"
+-      ) {
 -        lastContent.providerOptions = mergeDeep(lastContent.providerOptions ?? {}, providerOptions)
++      // Mark the last CACHEABLE block (skip a trailing thinking/reasoning block,
++      // which Anthropic rejects cache_control on, and the tool-approval pseudo
++      // blocks). Falls through to message-level marking if none is found.
++      let lastContent: any = undefined
++      for (let i = msg.content.length - 1; i >= 0; i--) {
++        if (isCacheableBlock(msg.content[i])) {
++          lastContent = msg.content[i]
++          break
++        }
++      }
++      if (lastContent) {
 +        // Shallow merge: buildCacheOptionsInternal returns a single provider's key, no nested conflict.
 +        lastContent.providerOptions = {
 +          ...lastContent.providerOptions,
@@ -1162,7 +1210,7 @@ index 3104468ab..8787580b2 100644
    }
  
    return msgs
-@@ -429,17 +551,11 @@ function unsupportedParts(msgs: ModelMessage[], model: Provider.Model): ModelMes
+@@ -434,17 +590,11 @@ function unsupportedParts(msgs: ModelMessage[], model: Provider.Model): ModelMes
  export function message(msgs: ModelMessage[], model: Provider.Model, options: Record<string, unknown>) {
    msgs = unsupportedParts(msgs, model)
    msgs = normalizeMessages(msgs, model, options)
@@ -1186,7 +1234,7 @@ index 3104468ab..8787580b2 100644
    }
  
 diff --git a/packages/opencode/src/session/tools.ts b/packages/opencode/src/session/tools.ts
-index f45df9d0f..89aa32d46 100644
+index f45df9d..89aa32d 100644
 --- a/packages/opencode/src/session/tools.ts
 +++ b/packages/opencode/src/session/tools.ts
 @@ -1,6 +1,7 @@
@@ -1235,7 +1283,7 @@ index f45df9d0f..89aa32d46 100644
  
 diff --git a/packages/opencode/test/provider/config.test.ts b/packages/opencode/test/provider/config.test.ts
 new file mode 100644
-index 000000000..c86c59c8f
+index 0000000..fc9a85a
 --- /dev/null
 +++ b/packages/opencode/test/provider/config.test.ts
 @@ -0,0 +1,965 @@
@@ -2205,10 +2253,10 @@ index 000000000..c86c59c8f
 +  })
 +})
 diff --git a/packages/opencode/test/provider/transform.test.ts b/packages/opencode/test/provider/transform.test.ts
-index 90e2a177f..0437ebded 100644
+index dad1987..650aac6 100644
 --- a/packages/opencode/test/provider/transform.test.ts
 +++ b/packages/opencode/test/provider/transform.test.ts
-@@ -2239,7 +2239,7 @@ describe("ProviderTransform.message - cache control on gateway", () => {
+@@ -2240,7 +2240,7 @@ describe("ProviderTransform.message - cache control on gateway", () => {
      expect(result[0].providerOptions).toBeUndefined()
    })
  
@@ -2217,7 +2265,7 @@ index 90e2a177f..0437ebded 100644
      const model = createModel({
        providerID: "anthropic",
        api: {
-@@ -2261,41 +2261,21 @@ describe("ProviderTransform.message - cache control on gateway", () => {
+@@ -2262,41 +2262,21 @@ describe("ProviderTransform.message - cache control on gateway", () => {
  
      const result = ProviderTransform.message(msgs, model, {}) as any[]
  
@@ -2263,21 +2311,22 @@ index 90e2a177f..0437ebded 100644
    })
  
 -  test("google-vertex-anthropic applies cache control", () => {
-+  test("google-vertex-anthropic applies B+E caching: 5m on system + 5m on user anchor (Vertex rejects ttl field)", () => {
++  test("google-vertex-anthropic applies B+E caching: 1h on system + 5m on conversation anchor", () => {
      const model = createModel({
        providerID: "google-vertex-anthropic",
        api: {
-@@ -2318,39 +2298,181 @@ describe("ProviderTransform.message - cache control on gateway", () => {
+@@ -2319,39 +2299,185 @@ describe("ProviderTransform.message - cache control on gateway", () => {
  
      const result = ProviderTransform.message(msgs, model, {}) as any[]
  
-+    // Vertex: 5m on system + user anchor (rejects ttl field without beta header)
++    // Vertex: 1h on system (verified header-free on Vertex Opus 4.x), 5m on the
++    // conversation anchor (here the lone user message is the conversation tail).
      expect(result[0].providerOptions).toEqual({
        anthropic: {
 -        cacheControl: {
 -          type: "ephemeral",
 -        },
-+        cacheControl: { type: "ephemeral" },
++        cacheControl: { type: "ephemeral", ttl: "1h" },
        },
 -      openrouter: {
 -        cacheControl: {
@@ -2299,9 +2348,12 @@ index 90e2a177f..0437ebded 100644
 +describe("ProviderTransform.message - anthropic stable-anchor caching (B+E)", () => {
 +  // After applying design B+E from docs/plans/2026-04-21-cache-write-mitigation-design.md:
 +  //   1. Static system messages get cacheControl with ttl: "1h"
-+  //   2. The conversation breakpoint anchors on the LAST USER MESSAGE
-+  //      (a stable boundary), NOT the moving last-2-non-system tail.
-+  //   3. The anchor uses 5m TTL because it advances every user turn anyway.
++  //   2. The conversation breakpoint anchors on the MOVING TAIL (the last
++  //      cacheable non-system message), so it advances with the tool loop and
++  //      the appended tool-results become cacheable (the prior prefix stays
++  //      byte-identical). Anchoring on the last *user* message left the tool-loop
++  //      tail uncached on Vertex/Bedrock (which have no automatic tail caching).
++  //   3. The anchor uses 5m TTL because it advances every step anyway.
 +  //   4. Total cache_control markers across the request stay <= 4 (Anthropic's API cap).
 +  const createAnthropicModel = (overrides: Partial<any> = {}) =>
 +    ({
@@ -2374,7 +2426,7 @@ index 90e2a177f..0437ebded 100644
      })
    })
 +
-+  test("does NOT cache the last assistant or tool message (the moving tail)", () => {
++  test("caches the MOVING TAIL (last message), not the last user message", () => {
 +    const model = createAnthropicModel()
 +    const msgs = [
 +      { role: "system", content: "You are a helpful assistant" },
@@ -2386,17 +2438,18 @@ index 90e2a177f..0437ebded 100644
 +
 +    const result = ProviderTransform.message(msgs, model, {}) as any[]
 +
-+    // System: cached
++    // System: cached (1h)
 +    expect(result[0].providerOptions?.anthropic?.cacheControl).toBeDefined()
-+    // Last user message: cached (anchor)
-+    expect(result[1].providerOptions?.anthropic?.cacheControl).toBeDefined()
-+    // Assistant/tool messages after the user anchor: NOT cached
++    // The old last-user anchor is gone: the user message is NOT the anchor.
++    expect(result[1].providerOptions?.anthropic?.cacheControl).toBeUndefined()
++    // Intermediate assistant/tool messages: NOT cached.
 +    expect(result[2].providerOptions?.anthropic?.cacheControl).toBeUndefined()
 +    expect(result[3].providerOptions?.anthropic?.cacheControl).toBeUndefined()
-+    expect(result[4].providerOptions?.anthropic?.cacheControl).toBeUndefined()
++    // The conversation tail (last message) carries the 5m moving anchor.
++    expect(result[4].providerOptions?.anthropic?.cacheControl).toEqual({ type: "ephemeral" })
 +  })
 +
-+  test("anchors on the LAST user message even when more user messages exist", () => {
++  test("anchors on the moving tail (last message), not any user message", () => {
 +    const model = createAnthropicModel()
 +    const msgs = [
 +      { role: "system", content: "You are a helpful assistant" },
@@ -2408,12 +2461,11 @@ index 90e2a177f..0437ebded 100644
 +
 +    const result = ProviderTransform.message(msgs, model, {}) as any[]
 +
-+    // Earlier user message: NOT cached (only the LAST user gets the anchor)
++    // User messages are no longer the anchor.
 +    expect(result[1].providerOptions?.anthropic?.cacheControl).toBeUndefined()
-+    // Last user: cached
-+    expect(result[3].providerOptions?.anthropic?.cacheControl).toBeDefined()
-+    // Trailing assistant (moving tail): NOT cached
-+    expect(result[4].providerOptions?.anthropic?.cacheControl).toBeUndefined()
++    expect(result[3].providerOptions?.anthropic?.cacheControl).toBeUndefined()
++    // The trailing assistant message (the tail) carries the 5m moving anchor.
++    expect(result[4].providerOptions?.anthropic?.cacheControl).toEqual({ type: "ephemeral" })
 +  })
 +
 +  test("with two system messages, both get 1h, plus user anchor: total 3 markers", () => {
