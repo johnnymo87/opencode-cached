@@ -1,5 +1,29 @@
 # opencode-cached
 
+> ## ⚠️ DEPRECATED & ARCHIVED (2026-06-02)
+>
+> **This repository is no longer used and is archived (read-only).** Upstream
+> [OpenCode](https://github.com/anomalyco/opencode)'s `applyCaching` now implements
+> the moving-tail conversation anchor (`non-system.slice(-2)`) that was the core
+> ~$500/day win of this fork's `caching.patch`, making the ~1100-line patch
+> redundant. A/B testing on Vertex confirmed upstream matches this fork (0%
+> uncached input, low cache-write, no tool-prefix busting), and a 22h production
+> soak after cutover held both Vertex and first-party Anthropic at **0.00%
+> uncached**.
+>
+> The single behavior worth keeping — skipping reasoning/thinking blocks at the
+> cache breakpoint — now lives as the small `cache-thinking-skip.patch` in
+> [opencode-patched](https://github.com/johnnymo87/opencode-patched). The build
+> chain (`opencode-patched`'s `sync-upstream.yml`) now watches upstream directly
+> and no longer depends on this repo.
+>
+> **Full analysis & rationale:** `docs/plans/2026-06-02-paring-back-opencode-cached-caching.md`
+> in the `workstation` repo.
+>
+> Everything below is retained for historical reference only.
+
+---
+
 **OpenCode with prompt caching improvements from [PR #5422](https://github.com/anomalyco/opencode/pull/5422)**
 
 This repository automatically builds patched versions of [OpenCode](https://github.com/anomalyco/opencode) with comprehensive prompt caching improvements that significantly reduce AI API costs.
